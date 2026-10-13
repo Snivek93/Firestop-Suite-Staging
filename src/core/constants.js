@@ -1,0 +1,127 @@
+/* Utilidades básicas ($, esc), constantes de la app, colores, categorías por defecto y carga diferida de pdf.js. */
+import { S } from './state.js';
+
+export function $(s) { return document.querySelector(s); }
+
+export function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* pdf.js se carga solo cuando hace falta (al abrir el primer plano PDF) */
+export let pdfjsLib = null;
+export let pdfjsLoading = null;
+
+export async function pdfReady() {
+  if (pdfjsLib) return pdfjsLib;
+  if (!pdfjsLoading) pdfjsLoading = import('pdfjs-dist/legacy/build/pdf.min.mjs').then(m => {
+    m.GlobalWorkerOptions.workerSrc = new URL('vendor/pdf.worker.min.mjs', document.baseURI).href;
+    pdfjsLib = m; return m;
+  }).catch(e => { pdfjsLoading = null; throw e; });
+  return pdfjsLoading;
+}
+
+export let isMobile;
+
+export let MAXDIM;
+/* Ahorro de memoria (computadoras con poca RAM): planos base más livianos y menos planos guardados en memoria.
+   Se activa en Archivo; si el navegador informa 4 GB o menos, viene activado. */
+export let LITE = false;
+const LITE_KEY = 'cortafuego-lite';
+function liteSetting() {
+  try { const v = localStorage.getItem(LITE_KEY); if (v === '1') return true; if (v === '0') return false; } catch (e) {}
+  return !!(navigator.deviceMemory && navigator.deviceMemory <= 4);
+}
+export function setLite(on) { try { localStorage.setItem(LITE_KEY, on ? '1' : '0'); } catch (e) {} }
+
+export let MAXAREA;
+
+export const PDF_UNIT = 2; // unidades de plano por punto PDF (independiente de la resolución)
+
+export const LS_KEY = 'cortafuego-superposicion-v1';
+
+export const WIDTHS = [0.5, 1, 2, 4, 7];
+
+export const WIDTH_NAMES = ['Extra fino', 'Fino', 'Medio', 'Grueso', 'Extra grueso'];
+
+export const WIDTH_DOTS = [2, 4, 7, 11, 16];
+
+export function widthSeg(act, value) {
+  return `<div class="seg wseg" role="group" aria-label="Grosor">${WIDTH_NAMES.map((n, i) => `<button data-o="${act}" data-v="${i}" class="${value === i ? 'on' : ''}" title="${n}" aria-label="${n}"><i style="width:${WIDTH_DOTS[i]}px;height:${WIDTH_DOTS[i]}px"></i></button>`).join('')}</div><span class="lbl">${WIDTH_NAMES[value] || ''}</span>`;
+}
+
+export const DEFAULT_SEAL_TYPES = [
+  {id:'elec', name:'Eléctrico', color:'#D08F00'},
+  {id:'mec',  name:'Mecánico',  color:'#1E6FB8'},
+  {id:'plom', name:'Plomería',  color:'#12866B'},
+  {id:'tel',  name:'Datos y telecom', color:'#7A4CC2'},
+  {id:'otro', name:'Otro',      color:'#5A6268'},
+  {id:'pend', name:'Por definir', color:'#9AA1A6'}
+];
+
+export const PEND = {id:'pend', name:'Por definir', color:'#9AA1A6'};
+
+export function stFind(id) { return S.sealTypes.find(t => t.id === id) || S.sealTypes.find(t => t.id === 'pend') || PEND; }
+
+export let ST;
+
+export const CAT_COLORS = ['#D08F00','#1E6FB8','#12866B','#7A4CC2','#C81E2B','#E05A9B','#0F9AA8','#8C6D1F','#FF7A00','#3949AB','#2E7D32','#5A6268','#B71C8C','#00897B'];
+
+export function nextCatColor() { return CAT_COLORS.find(c => !S.sealTypes.some(t => t.color.toLowerCase() === c.toLowerCase())) || CAT_COLORS[S.sealTypes.length % CAT_COLORS.length]; }
+
+export function txtOn(hex) { const n = parseInt(String(hex).slice(1), 16); const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return (r*0.299 + g*0.587 + b*0.114) > 170 ? '#21272C' : '#ffffff'; }
+
+export const KINDS = {cortafuego:'Pared cortafuego', instalaciones:'Instalaciones', sellos:'Sellos', tablas:'Tablas y leyendas', general:'General'};
+
+export const TINTS = [
+  {id:'', name:'Colores originales'},
+  {id:'#1E6FB8', name:'Azul'},
+  {id:'#C81E2B', name:'Rojo'},
+  {id:'#12866B', name:'Verde'},
+  {id:'#8A3FC0', name:'Morado'},
+  {id:'#D08F00', name:'Ámbar'}
+];
+
+export const PEN_COLORS = ['#C81E2B','#1E6FB8','#12866B','#D08F00','#8A3FC0','#E05A9B','#21272C'];
+
+export const HL_COLORS = ['#FFD400','#7CE36B','#FF7EB6','#FFA53D','#5CC8FF','#B98CFF'];
+
+export const HL_WIDTHS = [3, 5, 10, 18, 30];
+
+/* tamaños de texto (en píxeles de pantalla con zoom 1): chico, mediano, grande, muy grande */
+/* Tamaño del texto en puntos, como en Word: es el tamaño con que sale en la lámina impresa (PDF exportado).
+   Se mide sobre la lámina del plano B (o del A si no hay B), a escala 1:1 del PDF. */
+export const TEXT_PTS = [2, 4, 6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 28, 32, 36, 48, 72];
+export const TEXT_DEF_PT = 14;
+export function ptUnit() { const r = S.plans.B && S.plans.B.w ? S.plans.B : S.plans.A; return PDF_UNIT*((r && r.s) || 1); }
+export const textSizeSeg = (act, cur) => `<span class="lbl">Tamaño</span><select data-o="${act}" aria-label="Tamaño del texto (puntos)" style="width:auto">${TEXT_PTS.includes(cur) ? '' : `<option value="" selected>${cur > 0 ? cur : '—'}</option>`}${TEXT_PTS.map(v => `<option value="${v}"${v === cur ? ' selected' : ''}>${v}</option>`).join('')}</select><span class="lbl">pt</span>`;
+export const LAYER_COLORS = ['#C81E2B','#1E6FB8','#12866B','#D08F00','#8A3FC0','#E05A9B','#21272C'];
+
+/* Se ejecuta una vez al arrancar, en el orden original (ver main.js). */
+export function init() {
+  isMobile = matchMedia('(pointer:coarse)').matches || /iPhone|iPad|Android/i.test(navigator.userAgent);
+  LITE = liteSetting();
+  // con "ahorro de memoria" la imagen base de cada plano es más chica; al acercar se vuelve a dibujar nítida desde el PDF
+  MAXDIM = isMobile ? 4096 : LITE ? 5000 : 7000;
+  MAXAREA = isMobile ? 9e6 : LITE ? 9e6 : 22e6;
+  ST = new Proxy({}, {get: (_, id) => stFind(String(id))});
+}
+
+/* ---------- canastas / bandejas de cables: dimensión A × B ----------
+   Se guardan en el sello como "400×100 mm" (A = ancho, B = alto, en mm). Una categoría llamada
+   "Canasta 400×100 mm" (o "Bandeja …") hace que sus sellos lleven esa dimensión, igual que "ø50 mm". */
+const TRAY_RE = /(\d+(?:[.,]\d+)?)\s*[x×X*]\s*(\d+(?:[.,]\d+)?)\s*(mm|cm)?/;
+export function trayDims(txt) {
+  const m = String(txt || '').match(TRAY_RE); if (!m) return null;
+  const k = m[3] && m[3].toLowerCase() === 'cm' ? 10 : 1;
+  const a = Math.round(parseFloat(m[1].replace(',', '.'))*k), b = Math.round(parseFloat(m[2].replace(',', '.'))*k);
+  return a > 0 && b > 0 ? {a, b} : null;
+}
+export const trayLabel = d => `${d.a}×${d.b} mm`;
+export const isTrayName = n => /^\s*(canasta|bandeja)/i.test(String(n || '')) && !!trayDims(n);
+export const isDiamName = n => /^[øØ⌀]\s*\d/.test(String(n || '').trim());
+/* lo que un sello de esa categoría lleva en "diámetro / dimensión" (o null si la categoría no es de medida) */
+export function catMeasure(name) {
+  if (isDiamName(name)) return String(name).trim();
+  if (isTrayName(name)) return trayLabel(trayDims(name));
+  return null;
+}
+/* nombre de categoría para una medida de sello: "ø50 mm" → "ø50 mm"; "400×100 mm" → "Canasta 400×100 mm" */
+export const catNameForMeasure = v => trayDims(v) && !isDiamName(v) ? 'Canasta ' + trayLabel(trayDims(v)) : v;
