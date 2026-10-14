@@ -266,13 +266,41 @@ function todasLasZonaNivelUsadas() {
 function nombresDeGruposUsados() {
   return Array.from(new Set(Object.values(GRUPOS_CUANTIFICACION.asignaciones).filter(Boolean)));
 }
+// --- División por tipo de sello: Pared / Losa / Juntas (Kevin, 14/10/2026) ---
+// Se guarda como GRUPOS_CUANTIFICACION.dividirTipo (viaja con el proyecto sin
+// tocar el guardado). Pared = filas con M "Pared"; Losa = todo lo demás
+// (Entrepiso); Juntas = el levantamiento de juntas. No cambia ninguna fórmula:
+// solo se llama a computeResumen / mezclarResumenJuntas con subconjuntos.
+function esFilaPared(r) { return String(r.M || "").trim().toLowerCase() === "pared"; }
+function dividirPorTipoActivo() { return !!GRUPOS_CUANTIFICACION.dividirTipo; }
+function vistaDivididaActiva() { return !!GRUPOS_CUANTIFICACION.activo || dividirPorTipoActivo(); }
+
+// parte: "todo" (penetrantes + juntas, como siempre) | "pared" | "losa" | "juntas"
+function itemsMaterialesParteGrupo(perteneceGrupo, parte) {
+  let computed = parte === "juntas" ? [] : computeAllRows().filter(tieneDatosMinimos).filter(perteneceGrupo);
+  if (parte === "pared") computed = computed.filter(esFilaPared);
+  else if (parte === "losa") computed = computed.filter((r) => !esFilaPared(r));
+  const computedJ = (parte === "todo" || parte === "juntas") ? computeAllJuntaRows().filter(tieneDatosMinimosJunta).filter(perteneceGrupo) : [];
+  const resumen = computeResumen(computed, CONFIG.C17, { FS_ONE_MAX: CONFIG.UMB_FS, CP606: CONFIG.UMB_CP606, CFS_SIL_GG: CONFIG.UMB_SILGG });
+  mezclarResumenJuntas(resumen, computedJ);
+  // En la tabla de Juntas el sufijo " (Juntas)" sobra: ya lo dice el título.
+  if (parte === "juntas") return resumen.items.map((it) => Object.assign({}, it, { producto: String(it.producto).replace(/ \(Juntas\)$/, "") }));
+  return resumen.items;
+}
 function itemsMaterialesParaGrupo(nombreGrupo) {
   const pertenece = (r) => (GRUPOS_CUANTIFICACION.asignaciones[claveZonaNivel(r)] || null) === nombreGrupo;
-  const computedFiltrado = computeAllRows().filter(tieneDatosMinimos).filter(pertenece);
-  const computedJFiltrado = computeAllJuntaRows().filter(tieneDatosMinimosJunta).filter(pertenece);
-  const resumen = computeResumen(computedFiltrado, CONFIG.C17, { FS_ONE_MAX: CONFIG.UMB_FS, CP606: CONFIG.UMB_CP606, CFS_SIL_GG: CONFIG.UMB_SILGG });
-  mezclarResumenJuntas(resumen, computedJFiltrado);
-  return resumen.items;
+  return itemsMaterialesParteGrupo(pertenece, "todo");
+}
+// Los agregados a mano no son de pared ni de losa ni de una zona: en las vistas
+// divididas van en su propia tabla al final.
+function itemsSoloManuales() {
+  const mapa = new Map();
+  (MANUAL_ITEMS || []).forEach((m) => {
+    const k = [m.codigo, m.producto, m.presentacion].join("|");
+    if (!mapa.has(k)) mapa.set(k, { tipo: m.tipo, producto: m.producto, presentacion: m.presentacion, codigo: m.codigo, cantidad: 0, manual: true });
+    mapa.get(k).cantidad += Number(m.cantidad) || 0;
+  });
+  return Array.from(mapa.values());
 }
 function filaTablaMaterial(it) {
   const esCollar = it.tipo === "COLLARÍN";
@@ -287,33 +315,88 @@ function filaTablaMaterial(it) {
     <td></td>
   </tr>`;
 }
-function renderMaterialesAgrupadoHTML() {
-  const nombres = nombresDeGruposUsados();
-  const itemsSinAsignar = itemsMaterialesParaGrupo(null);
-  const bloques = nombres.map((nombre) => {
-    const items = itemsMaterialesParaGrupo(nombre);
-    return `
-      <div class="resumen-section" style="margin-bottom:14px;">
-        <h3 style="margin:0 0 10px;font-size:var(--fs-base);">${escapeHtml(nombre)}</h3>
-        <div class="table-scroll">
-          <table class="resumen-table">
-            <thead><tr><th>Código</th><th class="num">Cantidad</th><th>Producto</th><th>Presentación</th><th>Tipo</th><th></th></tr></thead>
-            <tbody>${items.length ? items.map(filaTablaMaterial).join("") : `<tr><td colspan="6" class="empty-state">Sin materiales en este grupo.</td></tr>`}</tbody>
-          </table>
-        </div>
-      </div>`;
-  }).join("");
-  const bloqueSinAsignar = itemsSinAsignar.length ? `
+function tablaMaterialesBloqueHTML(titulo, tituloCompleto, items, opc) {
+  opc = opc || {};
+  const encabezado = opc.sub
+    ? `<h4 style="margin:0 0 8px;font-size:var(--fs-sm);color:var(--text-muted);">${escapeHtml(titulo)}</h4>`
+    : `<h3 style="margin:0 0 10px;font-size:var(--fs-base);${opc.muted ? "color:var(--text-muted);" : ""}">${escapeHtml(titulo)}</h3>`;
+  return `
     <div class="resumen-section" style="margin-bottom:14px;">
-      <h3 style="margin:0 0 10px;font-size:var(--fs-base);color:var(--text-muted);">Sin asignar a un grupo</h3>
+      ${encabezado}
       <div class="table-scroll">
-        <table class="resumen-table">
+        <table class="resumen-table" data-titulo="${escapeHtml(tituloCompleto)}">
           <thead><tr><th>Código</th><th class="num">Cantidad</th><th>Producto</th><th>Presentación</th><th>Tipo</th><th></th></tr></thead>
-          <tbody>${itemsSinAsignar.map(filaTablaMaterial).join("")}</tbody>
+          <tbody>${items.length ? items.map(filaTablaMaterial).join("") : `<tr><td colspan="6" class="empty-state">${escapeHtml(opc.vacio || "Sin materiales.")}</td></tr>`}</tbody>
         </table>
       </div>
-    </div>` : "";
-  return bloques + bloqueSinAsignar || `<p class="hint">Todavía no armaste ningún grupo — tocá "Separar por zonas" para crearlos.</p>`;
+    </div>`;
+}
+function renderMaterialesAgrupadoHTML() {
+  const dividir = dividirPorTipoActivo();
+  const usaZonas = !!GRUPOS_CUANTIFICACION.activo;
+  const asignado = (r) => GRUPOS_CUANTIFICACION.asignaciones[claveZonaNivel(r)] || null;
+  const grupos = usaZonas
+    ? nombresDeGruposUsados().map((n) => ({ nombre: n, pertenece: (r) => asignado(r) === n }))
+        .concat([{ nombre: null, etiqueta: "Sin asignar a un grupo", pertenece: (r) => asignado(r) === null, sinAsignar: true }])
+    : [{ nombre: "", pertenece: () => true }];
+  const partes = dividir
+    ? [["pared", "Sellos de pared", "Sin sellos de pared."], ["losa", "Sellos de losa", "Sin sellos de losa."], ["juntas", "Juntas", ""]]
+    : [["todo", "", "Sin materiales en este grupo."]];
+  let html = "";
+  grupos.forEach((g) => {
+    const etiquetaGrupo = g.sinAsignar ? g.etiqueta : g.nombre;
+    const bloques = partes.map(([parte, tituloParte, vacio]) => ({ parte, tituloParte, vacio, items: itemsMaterialesParteGrupo(g.pertenece, parte) }));
+    if (g.sinAsignar && bloques.every((b) => b.items.length === 0)) return; // "Sin asignar" solo si tiene algo
+    if (!dividir) {
+      const b = bloques[0];
+      html += tablaMaterialesBloqueHTML(etiquetaGrupo, etiquetaGrupo, b.items, { muted: g.sinAsignar, vacio: b.vacio });
+      return;
+    }
+    const visibles = bloques.filter((b) => b.parte !== "juntas" || b.items.length > 0)
+      .filter((b) => !g.sinAsignar || b.items.length > 0);
+    if (etiquetaGrupo) html += `<h3 style="margin:0 0 8px;font-size:var(--fs-base);${g.sinAsignar ? "color:var(--text-muted);" : ""}">${escapeHtml(etiquetaGrupo)}</h3>`;
+    visibles.forEach((b) => {
+      const completo = etiquetaGrupo ? `${etiquetaGrupo} — ${b.tituloParte}` : b.tituloParte;
+      html += tablaMaterialesBloqueHTML(b.tituloParte, completo, b.items, { sub: !!etiquetaGrupo, vacio: b.vacio });
+    });
+  });
+  const manuales = itemsSoloManuales();
+  if (manuales.length) html += tablaMaterialesBloqueHTML("Agregados a mano", "Agregados a mano", manuales, {});
+  html += `<p class="hint">Cada tabla redondea sus cartuchos y cubetas por separado, así que la suma de las tablas puede dar un poco más que la tabla completa. Tocá "Restituir" para volver a la tabla completa.</p>`;
+  return html || `<p class="hint">Agregá filas y datos en la pestaña Calculadora para ver el resumen.</p>`;
+}
+function dividirParedLosa() {
+  GRUPOS_CUANTIFICACION.dividirTipo = true;
+  marcarCambio();
+  renderResumen();
+  mostrarToast("Cantidades divididas en pared, losa y juntas.");
+}
+// Restituir: vuelve a la tabla completa. Si hay división por zonas, esta NO se
+// borra (los grupos quedan guardados): solo se apaga la vista.
+function restituirCuantificacion() {
+  const tipo = dividirPorTipoActivo();
+  const zonas = !!GRUPOS_CUANTIFICACION.activo;
+  const aplicar = (quitarTipo, quitarZonas) => {
+    if (quitarTipo) GRUPOS_CUANTIFICACION.dividirTipo = false;
+    if (quitarZonas) GRUPOS_CUANTIFICACION.activo = false;
+    marcarCambio();
+    renderResumen();
+    mostrarToast(vistaDivididaActiva() ? "Listo." : "Tabla de cantidades completa (pared + losa + juntas).");
+  };
+  if (tipo && zonas) {
+    pedirEleccion("¿Qué querés restituir?", [
+      { label: "Todo: tabla completa", act: "todo", clase: "primary" },
+      { label: "Solo quitar pared / losa", act: "tipo", clase: "secondary" },
+      { label: "Solo quitar zonas", act: "zonas", clase: "secondary" },
+      { label: "Cancelar", act: "cancelar", clase: "secondary" },
+    ], (act) => {
+      if (act === "todo") aplicar(true, true);
+      else if (act === "tipo") aplicar(true, false);
+      else if (act === "zonas") aplicar(false, true);
+    });
+  } else if (tipo || zonas) {
+    aplicar(tipo, zonas);
+  }
 }
 function abrirModalSepararPorZonas() {
   const zonas = todasLasZonaNivelUsadas();
@@ -439,7 +522,7 @@ function renderResumen() {
   const vistaCombinada = document.getElementById("materiales-vista-combinada");
   const vistaAgrupada = document.getElementById("materiales-vista-agrupada");
   if (vistaCombinada && vistaAgrupada) {
-    if (GRUPOS_CUANTIFICACION.activo) {
+    if (vistaDivididaActiva()) {
       vistaCombinada.style.display = "none";
       vistaAgrupada.style.display = "";
       vistaAgrupada.innerHTML = renderMaterialesAgrupadoHTML();
@@ -448,14 +531,27 @@ function renderResumen() {
       vistaAgrupada.style.display = "none";
     }
   }
+  // Los botones se asignan con onclick (no addEventListener): renderResumen se
+  // llama muchas veces y cada vez sumaba otro listener al mismo botón, así que
+  // el modal podía abrirse varias veces con un solo toque.
   const btnSepararZonas = document.getElementById("btn-separar-zonas");
   if (btnSepararZonas) {
-    btnSepararZonas.classList.toggle("modo-btn-active", GRUPOS_CUANTIFICACION.activo);
-    btnSepararZonas.addEventListener("click", abrirModalSepararPorZonas);
+    btnSepararZonas.classList.toggle("modo-btn-active", !!GRUPOS_CUANTIFICACION.activo);
+    btnSepararZonas.onclick = abrirModalSepararPorZonas;
+  }
+  const btnDividir = document.getElementById("btn-dividir-pared-losa");
+  if (btnDividir) {
+    btnDividir.classList.toggle("modo-btn-active", dividirPorTipoActivo());
+    btnDividir.onclick = () => { if (dividirPorTipoActivo()) mostrarToast("Ya está dividido. Tocá Restituir para volver a la tabla completa."); else dividirParedLosa(); };
+  }
+  const btnRestituir = document.getElementById("btn-restituir-cuantificacion");
+  if (btnRestituir) {
+    btnRestituir.style.display = vistaDivididaActiva() ? "" : "none";
+    btnRestituir.onclick = restituirCuantificacion;
   }
 
   const btnAgregarManual = document.getElementById("btn-agregar-manual");
-  if (btnAgregarManual) btnAgregarManual.addEventListener("click", abrirModalAgregarManual);
+  if (btnAgregarManual) btnAgregarManual.onclick = abrirModalAgregarManual;
 
   const normBody = document.getElementById("tbody-normativa");
   if (resumen.normativas.length === 0) {
