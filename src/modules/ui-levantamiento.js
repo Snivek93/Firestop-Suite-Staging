@@ -1294,7 +1294,7 @@ function renderLevantamiento() {
       <div class="lev-section">
         <label>F Rating <span class="lev-hint-sticky">· solo afecta cajas electromecánicas grandes</span></label>
         <div class="lev-toggle-group">
-          ${LEV.tipo === "Caja Electromecánica UL" ? "" : levChip("frating", "-", "Sin dato (-)", LEV.fRating === "-")}
+          ${LEV.tipo === "Caja Electromecánica UL" ? "" : levChip("frating", "-", "-", LEV.fRating === "-")}
           ${levChip("frating", "1 Hora", "1 Hora", LEV.fRating === "1 Hora")}
           ${levChip("frating", "2 Horas", "2 Horas", LEV.fRating === "2 Horas")}
         </div>
