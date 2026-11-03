@@ -85,10 +85,10 @@ function rowHtml(row, idx) {
       <td>${selectHtml(row._id, OPTS_M, row.M, "M", row.L === "Caja Electromecánica UL" ? ["Entrepiso"] : null)}</td>
       <td>${selectHtml(row._id, OPTS_N, row.N, "N", row.M === "Entrepiso" ? ["Panel de Yeso"] : (row.L === "Caja Electromecánica UL" ? ["Concreto"] : null))}</td>
       <td class="mem-cell"><input type="checkbox" class="mem-checkbox" data-id="${row._id}" data-field="MEM" ${row.MEM ? "checked" : ""} ${(row.M !== "Pared" || row.L === "Caja Electromecánica UL") ? "disabled" : ""} title="Membrana: sella solo un lado de la pared"></td>
-      <td>${selectHtml(row._id, OPTS_O, row.O, "O")}</td>
+      <td>${selectHtml(row._id, esCaja ? OPTS_O.filter(o => o !== "-") : OPTS_O, row.O, "O")}</td>
       <td>${selectHtml(row._id, OPTS_P, row.P, "P")}</td>
       <td class="${esCaja ? "" : "col-disabled"}">${selectHtml(row._id, ["7", "9"], String(row.PPSIZE || 7), "PPSIZE", null, !esCaja)}</td>
-      <td class="${esCaja ? "" : "col-disabled"}">${selectHtml(row._id, ["Fuera", "Dentro"], row.PPINST || "Fuera", "PPINST", null, !esCaja)}</td>
+      <td class="${esCaja ? "" : "col-disabled"}">${selectHtml(row._id, ["Fuera", "Dentro"], row.PPINST || "Fuera", "PPINST", null, !esCaja)}<label class="pp-plast-label" title="Caja plástica: Putty Pad siempre 1 capa"><input type="checkbox" class="pp-plast-checkbox" data-id="${row._id}" data-field="PPPLAST" ${row.PPPLAST ? "checked" : ""} ${esCaja ? "" : "disabled"}> Plástica</label></td>
       <td class="norma-cell">${badgeForQ(row)}</td>
       <td>${textHtml(row._id, "R", row.R)}</td>
       <td class="detalle-col">${detalleCalculoTexto(row)}</td>
@@ -203,7 +203,9 @@ function attachTableEvents() {
           // Las cajas electromecánicas UL solo se instalan en pared de panel de yeso,
           // son siempre una penetración de membrana, y no llevan espacio anular.
           row.M = "Pared"; row.N = "Panel de Yeso"; row.MEM = true; row.I = 0;
+          if (row.O === "-") row.O = "1 Hora"; // en cajas el F Rating sí cuenta (factor en caja grande)
         }
+        if (field === "L" && t.value !== "Caja Electromecánica UL") row.PPPLAST = false;
         if (field === "M" && t.value === "Entrepiso" && row.N === "Panel de Yeso") {
           row.N = "Concreto"; // no existe Entrepiso + Panel de Yeso
         }
@@ -212,6 +214,10 @@ function attachTableEvents() {
         else updateRowBadge(id);
         marcarCambio();
       }
+    } else if (t.type === "checkbox" && t.dataset.field === "PPPLAST") {
+      const id = Number(t.dataset.id);
+      const row = ROWS.find(r => r._id === id);
+      if (row) { row.PPPLAST = t.checked; renderRowInPlace(id); marcarCambio(); }
     } else if (t.type === "checkbox" && t.dataset.field === "MEM") {
       const id = Number(t.dataset.id);
       const row = ROWS.find(r => r._id === id);

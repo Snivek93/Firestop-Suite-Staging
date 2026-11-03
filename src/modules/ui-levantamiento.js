@@ -199,8 +199,8 @@ const LEV = {
   espesorAislamiento: "", espesorAislamientoOtro: false,
   ocupacion: "",
   anular: 0.5, anularOtro: false,
-  barrera: "Pared", material: "Panel de Yeso", fRating: "1 Hora", membrana: false,
-  cantidad: 1, nota: "", puttySize: 7, puttyInst: "Fuera", materialMultiple: "Pasta FS ONE MAX",
+  barrera: "Pared", material: "Panel de Yeso", fRating: "-", membrana: false,
+  cantidad: 1, nota: "", puttySize: 7, puttyInst: "Fuera", puttyPlast: false, materialMultiple: "Pasta FS ONE MAX",
   cajaPreset: "10x10x5",
   fotos: [],
   pinPendiente: null,
@@ -1094,7 +1094,7 @@ function describirItemLevantamiento(r) {
   const esRedondoLibre = levUsaDiametroLibre(r.L) && r.F !== "";
   const dimAB = esRedondoLibre ? ` ⌀${formatFraccionPulgadas(n(r.F) / 2.54)}` : (r.F !== "" ? " " + r.F + "×" + r.G + (r.H !== "" ? "×" + r.H : "") + "cm" : "");
   const aisl = (r.E && n(r.E) > 0) ? ` · aislamiento ${formatFraccionPulgadas(r.E)}` : "";
-  const mem = r.MEM ? " · membrana" : "";
+  const mem = (r.MEM ? " · membrana" : "") + (r.PPPLAST ? " · caja plástica" : "");
   return `${r.C}x ${escapeHtml(TIPO_LABEL_CORTO[r.L] || r.L)}${dim}${dimAB}${aisl} · anular ${formatFraccionPulgadas(r.I)} · ${escapeHtml(r.M)} ${escapeHtml(r.N)}${mem}`;
 }
 
@@ -1231,6 +1231,10 @@ function renderLevantamiento() {
               : "Esta caja está dentro del umbral — podés elegir por fuera o por dentro.";
           })()}
         </div>
+        <label class="lev-checkbox-row">
+          <input type="checkbox" id="lev-pp-plast" ${LEV.puttyPlast ? "checked" : ""}>
+          Caja plástica <span class="lev-hint-sticky">— Putty Pad siempre 1 capa</span>
+        </label>
       </div>` : ""}
 
       ${levUsaSelectorMultiple(LEV.tipo) ? `
@@ -1288,8 +1292,9 @@ function renderLevantamiento() {
       </div>
 
       <div class="lev-section">
-        <label>F Rating <span class="lev-hint-sticky">· se recuerda</span></label>
+        <label>F Rating <span class="lev-hint-sticky">· solo afecta cajas electromecánicas grandes</span></label>
         <div class="lev-toggle-group">
+          ${LEV.tipo === "Caja Electromecánica UL" ? "" : levChip("frating", "-", "Sin dato (-)", LEV.fRating === "-")}
           ${levChip("frating", "1 Hora", "1 Hora", LEV.fRating === "1 Hora")}
           ${levChip("frating", "2 Horas", "2 Horas", LEV.fRating === "2 Horas")}
         </div>
@@ -1371,6 +1376,9 @@ function attachLevantamientoEvents() {
   const anularOtro = document.getElementById("lev-anular-otro");
   if (anularOtro) anularOtro.addEventListener("input", () => { LEV.anularOtroTexto = anularOtro.value; });
 
+  const ppPlastEl = document.getElementById("lev-pp-plast");
+  if (ppPlastEl) ppPlastEl.addEventListener("change", () => { LEV.puttyPlast = ppPlastEl.checked; });
+
   const membranaEl = document.getElementById("lev-membrana");
   if (membranaEl) membranaEl.addEventListener("change", () => { LEV.membrana = membranaEl.checked; });
 
@@ -1443,6 +1451,9 @@ function attachLevantamientoEvents() {
         LEV.espesorAislamiento = ""; LEV.espesorAislamientoOtro = false; LEV.ocupacion = ""; LEV.materialMultiple = "Pasta FS ONE MAX";
         LEV.anularOtro = false;
         LEV.anular = valor === "Bandeja de Cables" ? 0 : 0.5;
+        LEV.puttyPlast = false;
+        // F Rating: "-" por defecto; en cajas electromecánicas sí cuenta, así que parte en 1 Hora.
+        LEV.fRating = (valor === "Caja Electromecánica UL") ? (LEV.fRating === "-" ? "1 Hora" : LEV.fRating) : "-";
         if (valor === "Caja Electromecánica UL") {
           LEV.barrera = "Pared"; LEV.material = "Panel de Yeso"; LEV.membrana = true;
           aplicarPresetCaja("10x10x5");
@@ -1585,6 +1596,7 @@ function editarItemLevantamiento(id, abrirFullscreen) {
   LEV.cantidad = row.C;
   LEV.puttySize = row.PPSIZE || 7;
   LEV.puttyInst = row.PPINST || "Fuera";
+  LEV.puttyPlast = !!row.PPPLAST;
   LEV.materialMultiple = levUsaSelectorMultiple(row.L) && ["Pasta FS ONE MAX", "Almohadilla CFS-BL", "Espuma CP 620"].includes(row.P) ? row.P : "Pasta FS ONE MAX";
   LEV.nota = row.R || "";
   LEV.fotos = (row.fotos || (row.foto ? [row.foto] : [])).slice();
@@ -1686,10 +1698,11 @@ function agregarDesdeLevantamiento() {
     D: (usaDim || diametroLibreActivo) ? "" : diametroVal, E: espesorVal,
     F: (usaDim || diametroLibreActivo) ? dimA : "", G: (usaDim || diametroLibreActivo) ? dimB : "", H: profCajaVal,
     I: anularVal, J: ocupacionVal,
-    L: LEV.tipo, M: LEV.barrera, N: LEV.material, O: LEV.fRating, MEM: LEV.barrera === "Pared" && LEV.membrana, R: LEV.nota,
+    L: LEV.tipo, M: LEV.barrera, N: LEV.material, O: (LEV.tipo === "Caja Electromecánica UL" && LEV.fRating === "-") ? "1 Hora" : LEV.fRating, MEM: LEV.barrera === "Pared" && LEV.membrana, R: LEV.nota,
     fotos: LEV.fotos.slice(),
     PPSIZE: LEV.tipo === "Caja Electromecánica UL" ? LEV.puttySize : 7,
     PPINST: LEV.tipo === "Caja Electromecánica UL" ? ppInstFinal : "Fuera",
+    PPPLAST: LEV.tipo === "Caja Electromecánica UL" && !!LEV.puttyPlast,
     P: levUsaSelectorMultiple(LEV.tipo) ? LEV.materialMultiple : materialRecomendado(LEV.tipo, usaDim ? null : diametroVal),
   });
   if (LEV.editandoId != null) nueva._id = LEV.editandoId;
@@ -1797,7 +1810,7 @@ function renderTablaAgrupadaHTML(grupos) {
 
             const esCaja = r.L === "Caja Electromecánica UL";
             const tipoLabel = escapeHtml(TIPO_LABEL_CORTO[r.L] || r.L)
-              + (esCaja ? `<br><span class="lev-sub-label">${r.PPINST === "Dentro" ? "Por dentro" : "Por fuera"}</span>` : "");
+              + (esCaja ? `<br><span class="lev-sub-label">${r.PPINST === "Dentro" ? "Por dentro" : "Por fuera"}${r.PPPLAST ? " · plástica" : ""}</span>` : "");
 
             const ulBadge = (c.Qtext && c.Qtext !== "-" && !["Sin sistema","Cambiar material a Pasta FS ONE MAX","Cambiar material a pasta FS ONE MAX"].includes(c.Qtext))
               ? `<a href="${escapeHtml(c.Qlink||"")}" target="_blank" rel="noopener" class="badge badge-ok" title="${escapeHtml(c.Qtext)}">${escapeHtml(c.Qtext.split(" ")[0])}</a>`
@@ -1828,7 +1841,7 @@ function renderTablaAgrupadaHTML(grupos) {
               <td class="num">${formatEspesorPenetrante(r.P, c.V)}</td>
               <td class="num">${vueltas !== null ? vueltas : "—"}</td>
               <td colspan="2" class="lev-col-resultado" style="font-size:var(--fs-xs)">${detalleRes}</td>
-              <td>${escapeHtml(r.O)}</td>
+              <td>${r.O === "-" ? "—" : escapeHtml(r.O)}</td>
               <td>${escapeHtml(r.R) || "—"}</td>
               <td class="row-actions">
                 ${buscarPinDeFila(r._id, "penetrante") ? `<button class="icon-btn" data-lev-ver-pin="${r._id}" data-lev-ver-pin-tipo="penetrante" aria-label="Ver ubicación en plano"><svg class="icon"><use href="#i-pin"/></svg></button>` : ""}

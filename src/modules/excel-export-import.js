@@ -473,7 +473,7 @@ function importarExcel(file) {
           L: L.trim(),
           M: OPTS_M.includes(M) ? M : OPTS_M[0],
           N: OPTS_N.includes(N) ? N : OPTS_N[0],
-          O: OPTS_O.includes(O) ? O : OPTS_O[0],
+          O: (OPTS_O.includes(O) && !(O === "-" && L.trim() === "Caja Electromecánica UL")) ? O : (L.trim() === "Caja Electromecánica UL" ? "1 Hora" : OPTS_O[0]),
           P: OPTS_P.includes(P) ? P : OPTS_P[0],
         });
       }

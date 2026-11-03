@@ -152,7 +152,7 @@ function longitudCintaPorVueltas(diamIn, nVueltas) {
 // config = {C13,C14,C15} espesores de pared/entrepiso
 // ---------------------------------------------------------------------------
 function computeRow(row, config) {
-  const { C, D, E, F, G, H, I, J, K, L, M, N, O, P, MEM, PPINST, PPSIZE } = row;
+  const { C, D, E, F, G, H, I, J, K, L, M, N, O, P, MEM, PPINST, PPSIZE, PPPLAST } = row;
   const out = {};
   // Propagar campos de identificación al out — la normativa y la UI los necesitan
   // desde las computed rows sin tener que cruzar con ROWS originales.
@@ -486,7 +486,9 @@ function computeRow(row, config) {
         AB = razon * n(C);
       }
     } else {
-      const mult = eq(O, "1 Hora") ? 2 : 4;
+      // Caja plástica (PPPLAST): siempre 1 capa de Putty Pad, sin importar el F Rating
+      // (Kevin, 03/11/2026). Sin la casilla se mantiene ×2 (1 Hora) o ×4 (2 Horas).
+      const mult = PPPLAST ? 1 : (eq(O, "1 Hora") ? 2 : 4);
       const razonGrande = Math.max(1, areaCaja / areaEfectiva); // mismo mínimo de 1 pad por caja
       AB = razonGrande * mult * n(C); // caja grande: tampoco se redondea por fila, solo el total del proyecto
     }

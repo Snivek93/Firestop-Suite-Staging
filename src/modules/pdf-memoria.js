@@ -2216,7 +2216,7 @@ function construirMemoriaCalculoPDF() {
         doc.setTextColor(20, 20, 20);
 
         doc.setFont("helvetica", "normal"); doc.setFontSize(MC_BODY); doc.setTextColor(80, 80, 80);
-        const notaGrande = "En caja tipo tablero la instalación (Dentro/Fuera) no cambia la fórmula — se muestra solo como referencia. El factor sí depende del F Rating de la barrera: ×2 para 1 Hora, ×4 para 2 Horas o más.";
+        const notaGrande = "En caja tipo tablero la instalación (Dentro/Fuera) no cambia la fórmula — se muestra solo como referencia. El factor sí depende del F Rating de la barrera: ×2 para 1 Hora, ×4 para 2 Horas o más." + (filasGrande.some(r => r.PPPLAST) ? " En caja plástica el factor es siempre ×1 (una sola capa), sin importar el F Rating." : "");
         const lsNotaGrande = doc.splitTextToSize(notaGrande, anchoContenido);
         doc.text(notaGrande, marginL, y, { align: "justify", maxWidth: anchoContenido }); y += lsNotaGrande.length * 13 + 10;
         doc.setTextColor(20, 20, 20);
@@ -2233,8 +2233,8 @@ function construirMemoriaCalculoPDF() {
         doc.setFont("helvetica", "bold"); doc.setFontSize(MC_BODY + 0.5); doc.setTextColor(20, 20, 20);
         doc.text("Ejemplo de cálculo", marginL, y); y += 15;
         doc.setFont("helvetica", "normal"); doc.setFontSize(MC_BODY); doc.setTextColor(80, 80, 80);
-        const factorG = eq(ejG.O, "1 Hora") ? 2 : 4;
-        const lineaEjG = `Zona "${ejG.A || "—"}", caja ${fmtComa(ejG.F, 1)}×${fmtComa(ejG.G, 1)}×${fmtComa(ejG.H, 1)} cm, barrera ${ejG.O || "-"} (factor ×${factorG}), cantidad ${ejG.C}.`;
+        const factorG = ejG.PPPLAST ? 1 : (eq(ejG.O, "1 Hora") ? 2 : 4);
+        const lineaEjG = `Zona "${ejG.A || "—"}", caja ${fmtComa(ejG.F, 1)}×${fmtComa(ejG.G, 1)}×${fmtComa(ejG.H, 1)} cm, ${ejG.PPPLAST ? "caja plástica" : "barrera " + (ejG.O || "-")} (factor ×${factorG}), cantidad ${ejG.C}.`;
         const lsEjG = doc.splitTextToSize(lineaEjG, anchoContenido);
         doc.text(lineaEjG, marginL, y, { align: "justify", maxWidth: anchoContenido }); y += lsEjG.length * 13 + 16;
         doc.setTextColor(20, 20, 20);

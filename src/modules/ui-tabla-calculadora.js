@@ -104,7 +104,7 @@ function nuevaFila() {
   return {
     _id: ROW_SEQ++,
     A: "", B: "", C: 1, D: "", E: 0, F: "", G: "", H: "", I: 0, J: 0,
-    L: OPTS_L[0], M: OPTS_M[0], N: OPTS_N[0], O: OPTS_O[0], P: OPTS_P[0], MEM: false, R: "", PPSIZE: 7, PPINST: "Fuera",
+    L: OPTS_L[0], M: OPTS_M[0], N: OPTS_N[0], O: OPTS_O[0], P: OPTS_P[0], MEM: false, R: "", PPSIZE: 7, PPINST: "Fuera", PPPLAST: false,
     AJ_override: null,  // override manual de talla de collarín (null = usar la automática)
     fotos: []            // array de dataURL JPEG comprimidos, fotos de evidencia de esta línea
   };
