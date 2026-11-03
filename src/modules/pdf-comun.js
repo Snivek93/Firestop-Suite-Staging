@@ -210,25 +210,123 @@ function construirReportePDF(opciones) {
     if (!nota) return null;
     return [{ content: nota, colSpan, styles: { fontStyle: "italic", fillColor: [255, 244, 224], textColor: [122, 74, 0] } }];
   }
+  // Notas y fotos en la propia línea (Kevin, 03/11/2026): en vez de una
+  // columna "Nota" y un apéndice de fotos al final, cada línea lleva, dentro
+  // de su MISMA fila, una franja destacada con su nota y debajo sus fotos.
+  // Se reserva el espacio con padding inferior en todas las celdas y se
+  // dibuja en didDrawCell de la última columna (después de pintar toda la
+  // fila, para que ningún fondo lo tape). Al ser una sola fila,
+  // rowPageBreak:"avoid" la mantiene completa: la línea, su nota y sus fotos
+  // nunca quedan en páginas distintas.
+  const EX_GAP = 4;
+  const EX_ANCHO = 612 - marginL - marginR;
+  const NOTA_FS = 8.5;
+  const NOTA_LH = 11;
+  const NOTA_PAD = 6;
+  const FOTO_GAP = 8;
+  const FOTO_PAD = 6;
+  const FOTO_ALTOS = [170, 130, 95, 70]; // se usa el primero cuyo bloque no pase de FOTO_BLOQUE_MAX
+  const FOTO_BLOQUE_MAX = 400;
+  function distribuirFotosPDF(fotos, altoMax) {
+    const anchoUtil = EX_ANCHO - FOTO_PAD * 2;
+    const anchoMax = altoMax * 1.5;
+    const items = [];
+    fotos.forEach((foto) => {
+      try {
+        const pr = doc.getImageProperties(foto);
+        const ratio = pr.width / pr.height;
+        let h = altoMax, w = h * ratio;
+        if (w > anchoMax) { w = anchoMax; h = w / ratio; }
+        items.push({ foto, w, h });
+      } catch (e) { /* foto corrupta: se omite sin romper el PDF */ }
+    });
+    let x = 0, altoLinea = 0, alto = 0;
+    items.forEach((it) => {
+      if (x > 0 && x + it.w > anchoUtil) { alto += altoLinea + FOTO_GAP; x = 0; altoLinea = 0; }
+      it.x = x; it.yRel = alto;
+      x += it.w + FOTO_GAP;
+      altoLinea = Math.max(altoLinea, it.h);
+    });
+    return { items, alto: alto + altoLinea };
+  }
+  // Recibe las celdas de texto de la línea, su nota y sus fotos; devuelve la
+  // fila lista para el body de autoTable. Sin nota ni fotos, devuelve las
+  // celdas tal cual (la fila queda idéntica a antes).
+  function filaConExtrasPDF(celdas, nota, fotos) {
+    const textoNota = String(nota || "").trim();
+    let d = null;
+    if (fotos && fotos.length) {
+      for (let i = 0; i < FOTO_ALTOS.length; i++) {
+        d = distribuirFotosPDF(fotos, FOTO_ALTOS[i]);
+        if (d.alto <= FOTO_BLOQUE_MAX) break;
+      }
+      if (!d.items.length) d = null;
+    }
+    if (!textoNota && !d) return celdas;
+    let lineasNota = null, altoNota = 0;
+    if (textoNota) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(NOTA_FS);
+      lineasNota = doc.splitTextToSize("Nota: " + textoNota, EX_ANCHO - NOTA_PAD * 2);
+      altoNota = lineasNota.length * NOTA_LH + 8;
+      doc.setFont("helvetica", "normal");
+    }
+    const extra = (lineasNota ? EX_GAP + altoNota : 0) + (d ? EX_GAP + d.alto + FOTO_PAD : 0);
+    const ultimo = celdas.length - 1;
+    return celdas.map((c, i) => {
+      const o = { content: c, styles: { cellPadding: { top: 4, right: 4, left: 4, bottom: 4 + extra } } };
+      if (i === ultimo) { o.extras = { lineasNota, altoNota, fotos: d ? d.items : null, altoFotos: d ? d.alto : 0, extra }; }
+      return o;
+    });
+  }
+  const dibujarExtrasCelda = (data) => {
+    const raw = data.cell && data.cell.raw;
+    if (!raw || !raw.extras) return;
+    const e = raw.extras;
+    let yy = data.cell.y + data.row.height - 4 - e.extra;
+    if (e.lineasNota) {
+      yy += EX_GAP;
+      doc.setFillColor(255, 244, 224);
+      doc.rect(marginL + 2, yy, EX_ANCHO - 4, e.altoNota, "F");
+      doc.setFillColor(230, 150, 0);
+      doc.rect(marginL + 2, yy, 3, e.altoNota, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(NOTA_FS);
+      doc.setTextColor(122, 74, 0);
+      e.lineasNota.forEach((ln, i) => doc.text(ln, marginL + 2 + NOTA_PAD, yy + 4 + NOTA_FS + i * NOTA_LH));
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(20, 20, 20);
+      yy += e.altoNota;
+    }
+    if (e.fotos) {
+      yy += EX_GAP;
+      e.fotos.forEach((it) => {
+        try {
+          doc.addImage(it.foto, "JPEG", marginL + FOTO_PAD + it.x, yy + it.yRel, it.w, it.h, undefined, "FAST");
+        } catch (err) { /* si una foto no se puede dibujar, se salta */ }
+      });
+    }
+  };
+
   if (opts.levantamiento) {
     if (computed.length > 0) {
       asegurarEspacioTabla(computed.length);
       dibujarTituloSeccion("Levantamiento — Penetrantes");
       const bodyPen = [];
       agruparParaTablaPDF(computed, (r) => r.A, (r) => r.B).forEach((g) => {
-        const filaNota = filaNotaZonaPDF(g.zonaRaw, g.nivel, 12);
+        const filaNota = filaNotaZonaPDF(g.zonaRaw, g.nivel, 11);
         if (filaNota) bodyPen.push(filaNota);
         g.items.forEach((r) => {
           const esCinta = r.P === MAT_CINTA_CON || r.P === MAT_CINTA_SIN;
           const vueltas = esCinta ? vueltasCintaPenetrante(r) : null;
-          bodyPen.push([
+          bodyPen.push(filaConExtrasPDF([
             r.A || "-", r.B || "-", String(r.C), TIPO_LABEL_CORTO[r.L] || r.L,
             dimensionPenetrantePDF(r),
             formatFraccionPulgadas(r.I), `${r.M}${r.MEM ? " (membrana)" : ""} / ${r.N}`,
             r.P || "—",
             formatEspesorPenetrante(r.P, r.V),
-            vueltas !== null ? vueltas : "—", r.O, r.R || "",
-          ]);
+            vueltas !== null ? vueltas : "—", r.O,
+          ], r.R, r.fotos || (r.foto ? [r.foto] : [])));
         });
       });
       doc.autoTable({
@@ -236,10 +334,11 @@ function construirReportePDF(opciones) {
         margin: tableMargin,
         pageBreak: "auto",
         rowPageBreak: "avoid",
-        head: [["Zona", "Nivel", "Cant.", "Penetrante", "Dimensión", "Anular", "Barrera", "Producto", "Espesor", "Vueltas Cinta", "F Rating", "Nota"]],
+        head: [["Zona", "Nivel", "Cant.", "Penetrante", "Dimensión", "Anular", "Barrera", "Producto", "Espesor", "Vueltas Cinta", "F Rating"]],
         body: bodyPen,
         styles: { fontSize: 8, cellPadding: 4 },
         headStyles: { fillColor: [26, 26, 26], textColor: 255 },
+        didDrawCell: dibujarExtrasCelda,
         didDrawPage: dibujarCabeceraPagina,
       });
       y = doc.lastAutoTable.finalY + espacioEntreTablas;
@@ -250,16 +349,15 @@ function construirReportePDF(opciones) {
       dibujarTituloSeccion("Levantamiento — Juntas");
       const bodyJun = [];
       agruparParaTablaPDF(computedJ_pdf, (r) => r.A, (r) => r.B).forEach((g) => {
-        const filaNota = filaNotaZonaPDF(g.zonaRaw, g.nivel, 10);
+        const filaNota = filaNotaZonaPDF(g.zonaRaw, g.nivel, 9);
         if (filaNota) bodyJun.push(filaNota);
         g.items.forEach((r) => {
-          bodyJun.push([
+          bodyJun.push(filaConExtrasPDF([
             r.A || "-", r.B || "-", String(r.cantidad),
             juntaLabelCorta(r, r.superiorInferior), barrerasLabelCorto(r.barreras), r.producto,
             String(r.longitud), String(r.ancho),
             r.espesorProductoIn !== null && r.espesorProductoIn !== undefined ? formatFraccionPulgadas(r.espesorProductoIn) : "—",
-            r.nota || "-",
-          ]);
+          ], r.nota, r.fotos || (r.foto ? [r.foto] : [])));
         });
       });
       doc.autoTable({
@@ -267,10 +365,11 @@ function construirReportePDF(opciones) {
         margin: tableMargin,
         pageBreak: "auto",
         rowPageBreak: "avoid",
-        head: [["Zona", "Nivel", "Cant.", "Junta", "Barreras", "Producto", "Longitud (cm)", "Ancho (cm)", "Espesor", "Nota"]],
+        head: [["Zona", "Nivel", "Cant.", "Junta", "Barreras", "Producto", "Longitud (cm)", "Ancho (cm)", "Espesor"]],
         body: bodyJun,
         styles: { fontSize: 8, cellPadding: 4 },
         headStyles: { fillColor: [26, 26, 26], textColor: 255 },
+        didDrawCell: dibujarExtrasCelda,
         didDrawPage: dibujarCabeceraPagina,
       });
       y = doc.lastAutoTable.finalY + espacioEntreTablas;
@@ -376,119 +475,9 @@ function construirReportePDF(opciones) {
     });
   }
 
-  // Fotografías del levantamiento (Penetrantes + Juntas), en grilla de 2
-  // por fila, con el detalle de a qué penetrante/junta corresponde debajo
-  // de cada una — agrupadas por zona, igual que las tablas de arriba.
-  // Va DESPUÉS de todo lo demás (tablas + resumen si aplica), como
-  // apéndice final. Aparece en "Levantamiento detallado" e "Informe
-  // completo" (los dos modos con opts.levantamiento=true) — no en
-  // "Resumen" ni "Levantamiento Resumido", que no muestran filas
-  // individuales. Kevin, 08/09/2026: "que se incluyan las fotos al final
-  // del informe detallado, con referencia a los penetrantes".
-  if (opts.levantamiento) {
-    const grupoFotos = (lista, obtenerFotos, obtenerEtiqueta) => {
-      const porZona = new Map();
-      lista.forEach((r) => {
-        const fotos = obtenerFotos(r);
-        if (!fotos || !fotos.length) return;
-        const clave = (r.A || "(sin zona)") + "‖" + (r.B || "");
-        if (!porZona.has(clave)) porZona.set(clave, { zona: r.A || "(sin zona)", nivel: r.B || "", items: [] });
-        porZona.get(clave).items.push({ fotos, etiqueta: obtenerEtiqueta(r) });
-      });
-      return Array.from(porZona.values());
-    };
-
-    const gruposFotosPen = grupoFotos(
-      computed,
-      (r) => r.fotos || (r.foto ? [r.foto] : []),
-      (r) => `${TIPO_LABEL_CORTO[r.L] || r.L} — ${dimensionPenetrantePDF(r).split("\n")[0]}`
-    );
-    const gruposFotosJ = grupoFotos(
-      computedJ_pdf,
-      (r) => r.fotos || (r.foto ? [r.foto] : []),
-      (r) => `Junta ${juntaLabelCorta(r, r.superiorInferior)} — ${barrerasLabelCorto(r.barreras)}`
-    );
-
-    if (gruposFotosPen.length > 0 || gruposFotosJ.length > 0) {
-      asegurarEspacioTabla(3);
-      dibujarTituloSeccion("Fotografías del Levantamiento");
-
-      const gap = 14;
-      const colWidth = (612 - marginL - marginR - gap) / 2;
-      const altoMaxImg = 150;
-      const altoTexto = 24;
-      const altoCelda = altoMaxImg + altoTexto + 10;
-
-      const dibujarSubtitulo = (texto) => {
-        if (y + 16 > safe.bottom) { doc.addPage(); dibujarCabeceraPagina(); y = safe.top; }
-        doc.setFontSize(9);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(90, 90, 90);
-        doc.text(texto, marginL, y);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(20, 20, 20);
-        y += 16;
-      };
-
-      const dibujarFotoEnCelda = (dataUrl, etiqueta, col) => {
-        const x = marginL + col * (colWidth + gap);
-        let w = colWidth, h = altoMaxImg;
-        try {
-          const props = doc.getImageProperties(dataUrl);
-          const ratio = props.width / props.height;
-          h = w / ratio;
-          if (h > altoMaxImg) { h = altoMaxImg; w = h * ratio; }
-        } catch (e) {
-          // Si la imagen viene corrupta o en un formato que jsPDF no puede
-          // leer, se salta esa foto puntual en vez de romper todo el PDF.
-          return false;
-        }
-        try {
-          doc.addImage(dataUrl, "JPEG", x, y, w, h, undefined, "FAST");
-        } catch (e) {
-          return false;
-        }
-        doc.setFontSize(8);
-        doc.setTextColor(60, 60, 60);
-        doc.text(etiqueta, x, y + altoMaxImg + 12, { maxWidth: colWidth });
-        doc.setTextColor(20, 20, 20);
-        return true;
-      };
-
-      const dibujarSeccionFotos = (grupos) => {
-        grupos.forEach((g) => {
-          // Reserva título + la primera fila de fotos JUNTOS — mismo
-          // criterio que asegurarEspacioTabla() usa para las tablas: un
-          // título nunca debe quedar solo al final de una página con su
-          // contenido recién en la siguiente. Sin esto, "Fachada — Nivel
-          // N3" podía quedar huérfano al pie de una página mientras sus
-          // fotos aparecían en la página siguiente sin ningún título
-          // visible arriba (encontrado con un PDF real de prueba, no a
-          // simple vista).
-          if (y + 16 + altoCelda > safe.bottom) { doc.addPage(); dibujarCabeceraPagina(); y = safe.top; }
-          dibujarSubtitulo(g.nivel ? `${g.zona} — Nivel ${g.nivel}` : g.zona);
-
-          // Aplana [{fotos:[...], etiqueta}] a una lista de (foto, etiqueta)
-          // para poder acomodar de a 2 por fila sin importar cuántas fotos
-          // tenga cada penetrante/junta individual.
-          const planas = [];
-          g.items.forEach((item) => {
-            item.fotos.forEach((foto) => planas.push({ foto, etiqueta: item.etiqueta }));
-          });
-
-          for (let i = 0; i < planas.length; i += 2) {
-            if (y + altoCelda > safe.bottom) { doc.addPage(); dibujarCabeceraPagina(); y = safe.top; }
-            dibujarFotoEnCelda(planas[i].foto, planas[i].etiqueta, 0);
-            if (planas[i + 1]) dibujarFotoEnCelda(planas[i + 1].foto, planas[i + 1].etiqueta, 1);
-            y += altoCelda;
-          }
-        });
-      };
-
-      dibujarSeccionFotos(gruposFotosPen);
-      dibujarSeccionFotos(gruposFotosJ);
-    }
-  }
+  // Las fotos y notas del levantamiento ya no van en un apéndice final ni en
+  // una columna aparte: se dibujan en la propia línea de cada penetrante/junta
+  // (ver filaConExtrasPDF arriba).
 
   // Numeración final de páginas ("Página X de N") ahora que se sabe el total
   const totalPaginas = doc.internal.getNumberOfPages();
