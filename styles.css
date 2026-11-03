@@ -1333,3 +1333,8 @@ button.primary:not(:disabled):active, button.secondary:not(:disabled):active, bu
 .proy-side-item .icon { width: 18px; height: 18px; }
 .proy-side-fila.activa .proy-side-item .icon { color: var(--hilti-red); }
 .proy-vacio-icono { width: 44px; height: 44px; }
+
+/* Casilla "Plástica" (Putty Pad, caja plástica = 1 capa) en la tabla Calculadora */
+.pp-plast-label { display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: var(--fs-xs); color: var(--text-secondary); cursor: pointer; white-space: nowrap; }
+.pp-plast-label input { width: 14px; height: 14px; accent-color: var(--hilti-red); cursor: pointer; }
+.pp-plast-label input:disabled { cursor: default; }
