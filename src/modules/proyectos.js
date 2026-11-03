@@ -2189,7 +2189,7 @@ async function renderPantallaProyectos(permitirCerrar, soloLocal) {
         <button type="button" class="proy-fab-menu-item" id="proy-fab-menu-abrir"><svg class="icon"><use href="#i-upload"/></svg>Abrir archivo</button>
       </div>
       <button type="button" class="proy-fab" id="proy-btn-nuevo" aria-label="Nuevo proyecto o abrir archivo"><svg class="icon"><use href="#i-plus"/></svg></button>
-      <input type="file" id="proy-fab-input-abrir" accept=".fss,.json,application/json,application/octet-stream,text/plain" style="display:none" />
+      <input type="file" id="proy-fab-input-abrir" accept=".fss,.json,.html,.htm,application/json,application/octet-stream,text/plain,text/html" style="display:none" />
     </div>`;
 
   if (ANIMAR_ENTRADA_PROYECTOS) {

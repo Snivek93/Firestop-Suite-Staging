@@ -171,6 +171,20 @@ function pedirEleccion(mensaje, opciones, onElegir, forzar) {
   });
 }
 
+// Archivos .html viejos (versión de producción anterior, "Guardar" como HTML):
+// son la app completa con el proyecto metido en un
+// <script id="embedded-project-data">. "Abrir…" los acepta igual que un .fss
+// (solo para LEER: al guardar siempre se genera .fss). Devuelve el JSON como
+// texto, o null si el .html no trae ningún proyecto adentro.
+function esArchivoHTML(file, texto) {
+  return /\.html?$/i.test((file && file.name) || "") || /^\s*<(!doctype|html)/i.test(texto || "");
+}
+function extraerJSONDeHTML(texto) {
+  const m = String(texto).match(/<script[^>]*id=["']embedded-project-data["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (!m || !m[1].trim()) return null;
+  return m[1].trim();
+}
+
 // "Abrir…" importa un .fss como PROYECTO NUEVO en la lista (no pisa el que
 // tenías abierto — eso era el comportamiento viejo de un solo proyecto).
 // Si el archivo trae el mismo id de un proyecto que ya tenés guardado
@@ -182,11 +196,20 @@ async function importarProyectoJSON(file) {
   reader.onload = async () => {
     let data;
     try {
-      const contenido = desenmascararFSS(reader.result);
+      let contenido;
+      if (esArchivoHTML(file, reader.result)) {
+        contenido = extraerJSONDeHTML(reader.result);
+        if (contenido === null) {
+          mostrarToast("Ese .html no trae ningún proyecto guardado adentro.", "error");
+          return;
+        }
+      } else {
+        contenido = desenmascararFSS(reader.result);
+      }
       data = JSON.parse(contenido);
       if (!data || !Array.isArray(data.filas)) throw new Error("Formato no reconocido");
     } catch (err) {
-      mostrarToast("No se pudo leer el archivo. Verificá que sea un .fss exportado desde esta calculadora.", "error");
+      mostrarToast("No se pudo leer el archivo. Verificá que sea un .fss (o un .html guardado desde la versión anterior) exportado desde esta calculadora.", "error");
       return;
     }
 
