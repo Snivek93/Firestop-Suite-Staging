@@ -1371,16 +1371,12 @@ button.primary:not(:disabled):active, button.secondary:not(:disabled):active, bu
 .lev-mt .lev-mt-prod, .lev-mt .lev-prod-select { width: 100%; font-size: 11px !important; padding: 4px 16px 4px 6px; min-height: 34px; border: 1px solid var(--border); border-radius: 8px; background-color: var(--surface-raised); color: var(--ink); background-position: right 4px center; text-overflow: ellipsis; }
 .lev-mt-prod-txt { font-size: 11px; }
 .lev-mt-acc { white-space: nowrap; text-align: center; padding: 2px 0 !important; }
-.lev-mt-acc .icon-btn { padding: 3px 0; min-width: 0; width: 17px; height: 28px; margin: 0; }
+.lev-mt-acc .icon-btn { padding: 6px 0; min-width: 0; width: 30px; height: 34px; margin: 0; }
 .lev-mt-acc .icon { width: 15px; height: 15px; }
 .lev-mt-det td { padding: 4px 4px 8px; border-top: 1px dashed var(--border); }
 .lev-mt-grid { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: start; }
 .lev-mt-kv { display: flex; flex-wrap: wrap; gap: 3px 10px; font-size: 11px; }
 .lev-mt-kv b { font-weight: 600; color: var(--text-muted); }
-.lev-mt-fr { background: rgba(30,120,230,.18); color: #0a64c8; border-radius: 4px; padding: 1px 6px; }
-:root[data-theme="dark"] .lev-mt-fr { color: #6db3ff; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lev-mt-fr { color: #6db3ff; } }
-.lev-mt-fr b { color: inherit; }
 .lev-mt-gris { font-size: 10px; color: var(--text-secondary); margin-top: 3px; }
 .lev-mt-nota { margin-top: 4px; padding: 4px 7px; background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 4px; color: var(--warn); font-size: 11px; }
 .lev-mt-der { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
@@ -1390,3 +1386,6 @@ button.primary:not(:disabled):active, button.secondary:not(:disabled):active, bu
 .lev-mt-iconos [data-lev-ver-fotos] { border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; background: var(--surface-raised); }
 .lev-mt-cant small { display: block; font-size: 9px; font-weight: 600; opacity: .8; }
 .lev-mt-res .lev-mt-cant { font-size: 15px; }
+.lev-mt-acc-del { vertical-align: bottom !important; height: 48px; padding-bottom: 6px !important; }
+.lev-zona-btn-peligro { color: var(--hilti-red); }
+.lev-zona-btn-x { font-size: 16px; font-weight: 700; line-height: 1; width: 14px; text-align: center; }
