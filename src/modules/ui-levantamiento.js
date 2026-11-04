@@ -1873,13 +1873,13 @@ const PROD_LABEL = {
 };
 
 function esVistaMovil() {
-  try { return !!(window.matchMedia && window.matchMedia("(max-width: 640px)").matches); } catch (e) { return false; }
+  try { return !!(window.matchMedia && window.matchMedia("(max-width: 899px)").matches); } catch (e) { return false; }
 }
 
-function zonaFilaMovilHTML(tipo, g) {
+function zonaFilaMovilHTML(tipo, g, columnas) {
   const attrs = `data-zona-raw="${escapeHtml(g.zonaRaw)}" data-nivel="${escapeHtml(g.nivel)}" data-lev-tipo="${tipo}"`;
   const nota = NOTAS_ZONA[claveNotaZona(g.zonaRaw, g.nivel)];
-  return `<tbody class="lev-mt-zona"><tr><td colspan="5">
+  return `<tbody class="lev-mt-zona"><tr><td colspan="${columnas || 5}">
     <button type="button" class="lev-zona-titulo" data-lev-zona-renombrar="1" ${attrs} aria-label="Renombrar zona y nivel"><span class="lev-zona-titulo-txt">${escapeHtml(tituloZona(g.zonaRaw, g.nivel))}</span><svg class="icon"><use href="#i-edit"/></svg></button>
     ${nota ? `<button type="button" class="lev-zona-nota-box" data-lev-zona-nota="1" ${attrs}><strong>Nota de zona</strong><span>${escapeHtml(nota)}</span></button>` : ""}
   </td></tr></tbody>`;
@@ -1977,91 +1977,51 @@ function renderTablaMovilJuntasHTML(grupos) {
     ${cuerpo}</table></div>`;
 }
 
+function renderTablaAnchaPenetrantesHTML(grupos) {
+  let alt = 0;
+  const cuerpo = grupos.map(g => zonaFilaMovilHTML("pen", g, 9) + g.items.map(r => {
+    const c = computeRow(r, CONFIG);
+    const esAisl = n(r.E) > 0;
+    const esRedondoLibre = levUsaDiametroLibre(r.L) && r.F !== "";
+    let dim = "";
+    if (r.D !== "") dim = " " + formatFraccionPulgadas(r.D) + (esAisl ? ` (+${formatFraccionPulgadas(r.E)} aisl)` : "");
+    else if (esRedondoLibre) dim = ` ⌀${formatFraccionPulgadas(n(r.F) / 2.54)}`;
+    else if (r.F !== "") dim = ` ${r.F}×${r.G}${r.H !== "" ? "×" + r.H : ""} cm` + (esAisl ? ` (+${formatFraccionPulgadas(r.E)} aisl)` : "");
+    const opcs = PRODUCTOS_POR_TIPO[r.L] || [];
+    const prod = opcs.length <= 1
+      ? `<span>${escapeHtml(PROD_LABEL[r.P] || r.P) || "—"}</span>`
+      : `<select class="cell-input lev-prod-select" data-lev-prod-id="${r._id}">${opcs.map(pp => `<option value="${escapeHtml(pp)}" ${pp === r.P ? "selected" : ""}>${escapeHtml(PROD_LABEL[pp] || pp)}</option>`).join("")}</select>`;
+    const extra = [];
+    if (r.L === "Caja Electromecánica UL") extra.push(`${r.PPINST === "Dentro" ? "Por dentro" : "Por fuera"}${r.PPPLAST ? " · plástica" : ""}`);
+    if (levUsaOcupacion(r.L) && r.J) extra.push(`Ocup. ${Math.round(n(r.J) * 100)}%`);
+    if (r.P === MAT_CINTA_CON || r.P === MAT_CINTA_SIN) extra.push(`Vueltas ${vueltasCintaPenetrante(r)}`);
+    const res = detalleCalculoTexto(c);
+    if (res !== "—") extra.push(res);
+    const ulOk = c.Qtext && c.Qtext !== "-" && !["Sin sistema", "Cambiar material a Pasta FS ONE MAX", "Cambiar material a pasta FS ONE MAX"].includes(c.Qtext);
+    const ul = ulOk ? `<a href="${escapeHtml(c.Qlink || "")}" target="_blank" rel="noopener" class="badge badge-ok" title="${escapeHtml(c.Qtext)}">${escapeHtml(c.Qtext.split(" ")[0])}</a>` : "—";
+    const esp = formatEspesorPenetrante(r.P, c.V);
+    return `<tbody class="lev-mt-bloque ${(alt++ % 2) ? "b2" : "b1"}"><tr>
+      <td class="lev-mt-cant">${r.C}</td>
+      <td><span class="pn">${escapeHtml(TIPO_LABEL_CORTO[r.L] || r.L)}${escapeHtml(dim)}</span>${extra.length ? `<small>${escapeHtml(extra.join(" · "))}</small>` : ""}${r.R ? `<div class="lev-mt-nota">Nota: ${escapeHtml(r.R)}</div>` : ""}</td>
+      <td>${escapeHtml(r.M)}<small>${escapeHtml(r.N)}${r.MEM ? " · membrana" : ""}</small></td>
+      <td>${prod}</td>
+      <td>${levOcultaAnular(r.L) ? "—" : formatFraccionPulgadas(r.I)}</td>
+      <td>${esp}</td>
+      <td>${r.O && r.O !== "-" ? escapeHtml(r.O) : "—"}</td>
+      <td>${ul}</td>
+      <td class="lev-wt-acc">${camaraYPinMovilHTML(r, "pen")}<button class="icon-btn" data-lev-edit-btn="${r._id}" aria-label="Editar"><svg class="icon"><use href="#i-edit"/></svg></button><span class="lev-wt-gap"></span><button class="icon-btn icon-danger" data-lev-del-btn="${r._id}" aria-label="Eliminar"><svg class="icon"><use href="#i-trash"/></svg></button></td>
+    </tr></tbody>`;
+  }).join("")).join("");
+  return `<div class="lev-wt-wrap"><table class="lev-wt">
+    <colgroup><col style="width:6%"><col style="width:20%"><col style="width:10%"><col style="width:14%"><col style="width:6%"><col style="width:7%"><col style="width:7%"><col style="width:10%"><col style="width:20%"></colgroup>
+    <thead><tr><th class="n">Cant.</th><th>Penetrante</th><th>Barrera</th><th>Producto</th><th>Anular</th><th>Espesor</th><th>F Rating</th><th>Sistema UL</th><th></th></tr></thead>
+    ${cuerpo}</table></div>`;
+}
+
 function renderTablaAgrupadaHTML(grupos) {
   if (grupos.length === 0) return `<div class="hint" style="margin:16px 0 0;">Todavía no hay penetrantes registrados. Usá "Levantamiento" arriba.</div>`;
   if (esVistaMovil()) return renderTablaMovilPenetrantesHTML(grupos);
-
-  const filas = [];
-  grupos.forEach(g => {
-    g.items.forEach((r, i) => filas.push({ r, esInicioZona: i === 0, zona: g.zona, zonaRaw: g.zonaRaw, nivel: g.nivel }));
-  });
-
-  return `
-    <div class="table-scroll">
-      <table class="resumen-table lev-tabla-resultados">
-        <thead><tr>
-          <th>Zona</th><th>Nivel</th><th class="num">Cant.</th><th>Penetrante</th><th>Dimensión</th><th>Anular</th><th>%</th>
-          <th>Barrera</th><th>Producto</th>
-          <th>Sistema UL</th>
-          <th class="num">Espesor</th><th class="num">Vueltas</th><th colspan="2">Resultados</th>
-          <th>F Rating</th><th>Nota</th><th></th>
-        </tr></thead>
-        <tbody>
-          ${filas.map(({ r, esInicioZona, zona, zonaRaw, nivel }) => {
-            const c = computeRow(r, CONFIG);
-
-            const esAisl = n(r.E) > 0;
-            const esRedondoLibre = levUsaDiametroLibre(r.L) && r.F !== "";
-            let dimBase, dimAisl = "";
-            if (r.D !== "") {
-              dimBase = formatFraccionPulgadas(r.D);
-              if (esAisl) dimAisl = ` (+${formatFraccionPulgadas(r.E)} aisl)`;
-            } else if (esRedondoLibre) {
-              dimBase = `⌀${formatFraccionPulgadas(n(r.F)/2.54)}`;
-            } else if (r.F !== "") {
-              dimBase = `${r.F}×${r.G}${r.H !== "" ? "×"+r.H : ""} cm`;
-              if (esAisl) dimAisl = ` (+${formatFraccionPulgadas(r.E)} aisl)`;
-            } else { dimBase = "—"; }
-            const dimHtml = dimBase + (dimAisl ? `<br><span class="lev-dim-aisl">${dimAisl.trim()}</span>` : "");
-
-            const pctOcup = levUsaOcupacion(r.L) && r.J ? Math.round(n(r.J)*100)+"%" : "—";
-
-            const esCaja = r.L === "Caja Electromecánica UL";
-            const tipoLabel = escapeHtml(TIPO_LABEL_CORTO[r.L] || r.L)
-              + (esCaja ? `<br><span class="lev-sub-label">${r.PPINST === "Dentro" ? "Por dentro" : "Por fuera"}${r.PPPLAST ? " · plástica" : ""}</span>` : "");
-
-            const ulBadge = (c.Qtext && c.Qtext !== "-" && !["Sin sistema","Cambiar material a Pasta FS ONE MAX","Cambiar material a pasta FS ONE MAX"].includes(c.Qtext))
-              ? `<a href="${escapeHtml(c.Qlink||"")}" target="_blank" rel="noopener" class="badge badge-ok" title="${escapeHtml(c.Qtext)}">${escapeHtml(c.Qtext.split(" ")[0])}</a>`
-              : "—";
-
-            const esCinta = r.P === MAT_CINTA_CON || r.P === MAT_CINTA_SIN;
-            const vueltas = esCinta ? vueltasCintaPenetrante(r) : null;
-            const detalleRes = detalleCalculoTexto(c);
-
-            const opcs = PRODUCTOS_POR_TIPO[r.L] || [];
-            const prodCell = opcs.length <= 1
-              ? `<span>${escapeHtml(r.P) || "—"}</span>`
-              : `<select class="cell-input lev-prod-select" data-lev-prod-id="${r._id}">
-                  ${opcs.map(p => `<option value="${escapeHtml(p)}" ${p===r.P?"selected":""}>${escapeHtml(PROD_LABEL[p]||p)}</option>`).join("")}
-                </select>`;
-
-            return `<tr class="${esInicioZona ? "lev-tabla-nueva-zona" : ""}">
-              <td>${esInicioZona ? `<strong>${escapeHtml(zona)}</strong>${NOTAS_ZONA[claveNotaZona(zonaRaw, nivel)] ? `<br><span class="lev-sub-label">${escapeHtml(NOTAS_ZONA[claveNotaZona(zonaRaw, nivel)])}</span>` : ""}` : ""}</td>
-              <td>${escapeHtml(r.B) || "—"}</td>
-              <td class="num">${r.C}</td>
-              <td>${tipoLabel}</td>
-              <td>${dimHtml}</td>
-              <td>${levOcultaAnular(r.L) ? "—" : formatFraccionPulgadas(r.I)}</td>
-              <td class="num">${pctOcup}</td>
-              <td>${escapeHtml(r.M)}<br><span class="lev-sub-label">${escapeHtml(r.N)}${r.MEM ? " · membrana" : ""}</span></td>
-              <td>${prodCell}</td>
-              <td>${ulBadge}</td>
-              <td class="num">${formatEspesorPenetrante(r.P, c.V)}</td>
-              <td class="num">${vueltas !== null ? vueltas : "—"}</td>
-              <td colspan="2" class="lev-col-resultado" style="font-size:var(--fs-xs)">${detalleRes}</td>
-              <td>${r.O === "-" ? "—" : escapeHtml(r.O)}</td>
-              <td>${escapeHtml(r.R) || "—"}</td>
-              <td class="row-actions">
-                ${buscarPinDeFila(r._id, "penetrante") ? `<button class="icon-btn" data-lev-ver-pin="${r._id}" data-lev-ver-pin-tipo="penetrante" aria-label="Ver ubicación en plano"><svg class="icon"><use href="#i-pin"/></svg></button>` : ""}
-                ${(r.fotos && r.fotos.length) ? `<button class="icon-btn" data-lev-ver-fotos="${r._id}" aria-label="Ver fotos"><svg class="icon"><use href="#i-camera"/></svg>${r.fotos.length > 1 ? `<span class="lev-foto-count">${r.fotos.length}</span>` : ""}</button>` : ""}
-                <button class="icon-btn" data-lev-edit-btn="${r._id}" aria-label="Editar"><svg class="icon"><use href="#i-edit"/></svg></button>
-                <button class="icon-btn icon-danger" data-lev-del-btn="${r._id}" aria-label="Eliminar"><svg class="icon"><use href="#i-close"/></svg></button>
-              </td>
-            </tr>`;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>`;
+  return renderTablaAnchaPenetrantesHTML(grupos);
 }
 
 function claseStatNum(valor) {
@@ -2154,61 +2114,42 @@ function renderTablaMovilResumidaJuntasHTML(grupos) {
     ${cuerpo}</table></div>`;
 }
 
+function renderTablaAnchaResumidaPenetrantesHTML(grupos) {
+  let alt = 0;
+  const cuerpo = grupos.map(({ rep: r, cantidad }) => {
+    const c = computeRow(Object.assign({}, r, { C: cantidad }), CONFIG);
+    const esAisl = n(r.E) > 0;
+    const esRedondoLibre = levUsaDiametroLibre(r.L) && r.F !== "";
+    let dim = "";
+    if (r.D !== "") dim = " " + formatFraccionPulgadas(r.D) + (esAisl ? ` (+${formatFraccionPulgadas(r.E)} aisl)` : "");
+    else if (esRedondoLibre) dim = ` ⌀${formatFraccionPulgadas(n(r.F) / 2.54)}`;
+    else if (r.F !== "") dim = ` ${r.F}×${r.G}${r.H !== "" ? "×" + r.H : ""} cm` + (esAisl ? ` (+${formatFraccionPulgadas(r.E)} aisl)` : "");
+    const extra = [];
+    if (r.P === MAT_CINTA_CON || r.P === MAT_CINTA_SIN) extra.push(`Vueltas ${vueltasCintaPenetrante(r)}`);
+    const res = detalleCalculoTexto(c);
+    if (res !== "—") extra.push(res);
+    const ulOk = c.Qtext && c.Qtext !== "-" && !["Sin sistema", "Cambiar material a Pasta FS ONE MAX", "Cambiar material a pasta FS ONE MAX"].includes(c.Qtext);
+    const ul = ulOk ? `<a href="${escapeHtml(c.Qlink || "")}" target="_blank" rel="noopener" class="badge badge-ok" title="${escapeHtml(c.Qtext)}">${escapeHtml(c.Qtext.split(" ")[0])}</a>` : "—";
+    return `<tbody class="lev-mt-bloque ${(alt++ % 2) ? "b2" : "b1"}"><tr>
+      <td class="lev-mt-cant">${cantidad}</td>
+      <td><span class="pn">${escapeHtml(TIPO_LABEL_CORTO[r.L] || r.L)}${escapeHtml(dim)}</span>${extra.length ? `<small>${escapeHtml(extra.join(" · "))}</small>` : ""}</td>
+      <td>${escapeHtml(r.M)}<small>${escapeHtml(r.N)}${r.MEM ? " · membrana" : ""}</small></td>
+      <td>${escapeHtml(PROD_LABEL[r.P] || r.P) || "—"}</td>
+      <td>${levOcultaAnular(r.L) ? "—" : formatFraccionPulgadas(r.I)}</td>
+      <td>${formatEspesorPenetrante(r.P, c.V)}</td>
+      <td>${ul}</td>
+    </tr></tbody>`;
+  }).join("");
+  return `<div class="lev-wt-wrap"><table class="lev-wt">
+    <colgroup><col style="width:8%"><col style="width:32%"><col style="width:14%"><col style="width:16%"><col style="width:8%"><col style="width:9%"><col style="width:13%"></colgroup>
+    <thead><tr><th class="n">Cant. total</th><th>Penetrante</th><th>Barrera</th><th>Producto</th><th>Anular</th><th>Espesor</th><th>Sistema UL</th></tr></thead>
+    ${cuerpo}</table></div>`;
+}
+
 function renderTablaResumidaPenetrantesHTML(grupos) {
   if (grupos.length === 0) return `<div class="hint" style="margin:16px 0 0;">Todavía no hay penetrantes registrados. Usá "Levantamiento" arriba.</div>`;
   if (esVistaMovil()) return renderTablaMovilResumidaPenetrantesHTML(grupos);
-
-  return `
-    <div class="table-scroll">
-      <table class="resumen-table lev-tabla-resultados">
-        <thead><tr>
-          <th class="num">Cant. Total</th>
-          <th>Penetrante</th><th>Dimensión</th><th>Anular</th>
-          <th>Barrera</th><th>Producto</th><th>Sistema UL</th>
-          <th class="num">Espesor</th><th class="num">Vueltas</th>
-          <th colspan="2">Resultados</th>
-        </tr></thead>
-        <tbody>
-          ${grupos.map(({ rep: r, cantidad, filas }) => {
-            const filaSintetica = Object.assign({}, r, { C: cantidad });
-            const c = computeRow(filaSintetica, CONFIG);
-
-            const esRedondoLibre = levUsaDiametroLibre(r.L) && r.F !== "";
-            let dimBase;
-            if (r.D !== "") dimBase = formatFraccionPulgadas(r.D);
-            else if (esRedondoLibre) dimBase = `⌀${formatFraccionPulgadas(n(r.F)/2.54)}`;
-            else if (r.F !== "") dimBase = `${r.F}×${r.G}${r.H !== "" ? "×"+r.H : ""} cm`;
-            else dimBase = "—";
-            const esAisl = n(r.E) > 0;
-            const dimHtml = dimBase + (esAisl ? `<br><span class="lev-dim-aisl">+${formatFraccionPulgadas(r.E)} aisl</span>` : "");
-
-            const tipoLabel = escapeHtml(TIPO_LABEL_CORTO[r.L] || r.L);
-
-            const ulBadge = (c.Qtext && c.Qtext !== "-" && !["Sin sistema","Cambiar material a Pasta FS ONE MAX","Cambiar material a pasta FS ONE MAX"].includes(c.Qtext))
-              ? `<a href="${escapeHtml(c.Qlink||"")}" target="_blank" rel="noopener" class="badge badge-ok" title="${escapeHtml(c.Qtext)}">${escapeHtml(c.Qtext.split(" ")[0])}</a>`
-              : "—";
-
-            const esCinta = r.P === MAT_CINTA_CON || r.P === MAT_CINTA_SIN;
-            const vueltas = esCinta ? vueltasCintaPenetrante(r) : null;
-
-            const detalleRes = detalleCalculoTexto(c);
-
-            return `<tr>
-              <td class="num"><strong>${cantidad}</strong></td>
-              <td>${tipoLabel}</td>
-              <td>${dimHtml}</td>
-              <td>${levOcultaAnular(r.L) ? "—" : formatFraccionPulgadas(r.I)}</td>
-              <td>${escapeHtml(r.M)}<br><span class="lev-sub-label">${escapeHtml(r.N)}${r.MEM ? " · membrana" : ""}</span></td>
-              <td>${escapeHtml(PROD_LABEL[r.P] || r.P) || "—"}</td>
-              <td>${ulBadge}</td>
-              <td class="num">${formatEspesorPenetrante(r.P, c.V)}</td>
-              <td class="num">${vueltas !== null ? vueltas : "—"}</td>
-              <td colspan="2" class="lev-col-resultado" style="font-size:var(--fs-xs)">${detalleRes}</td>
-            </tr>`;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>`;
+  return renderTablaAnchaResumidaPenetrantesHTML(grupos);
 }
 
 function renderLevantamientoTab() {
@@ -2292,50 +2233,33 @@ function lanaUnidadesSinRedondear(f) {
   return 0;
 }
 
+function renderTablaAnchaJuntasHTML(grupos) {
+  let alt = 0;
+  const cuerpo = grupos.map(g => zonaFilaMovilHTML("junta", g, 8) + g.items.map(r => {
+    const f = computeSingleJuntaRow(r);
+    const lanaUnid = r.calcularLana ? lanaUnidadesSinRedondear(f) * r.cantidad : 0;
+    const gris = [`Sellador: ${roundup(f.volumenSellador * r.cantidad, 0)} cm³`, r.calcularLana ? (lanaUnid > 0 ? `Lana: ${lanaUnid.toFixed(2)} unid.` : "") : "Sin lana"].filter(Boolean).join(" · ");
+    return `<tbody class="lev-mt-bloque ${(alt++ % 2) ? "b2" : "b1"}"><tr>
+      <td class="lev-mt-cant">${r.cantidad}</td>
+      <td><span class="pn">${escapeHtml(juntaLabelCorta(r, f.superiorInferior))}</span><small>${escapeHtml(gris)}</small>${r.nota ? `<div class="lev-mt-nota">Nota: ${escapeHtml(r.nota)}</div>` : ""}</td>
+      <td>${escapeHtml(barrerasLabelCorto(r.barreras))}</td>
+      <td>${escapeHtml(r.producto)}</td>
+      <td>${r.longitud} cm</td>
+      <td>${r.ancho} cm</td>
+      <td>${f.espesorProductoIn !== null ? formatFraccionPulgadas(f.espesorProductoIn) : "—"}</td>
+      <td class="lev-wt-acc">${camaraYPinMovilHTML(r, "junta")}<button class="icon-btn" data-levj-tab-edit="${r._id}" aria-label="Editar"><svg class="icon"><use href="#i-edit"/></svg></button><span class="lev-wt-gap"></span><button class="icon-btn icon-danger" data-levj-tab-del="${r._id}" aria-label="Eliminar"><svg class="icon"><use href="#i-trash"/></svg></button></td>
+    </tr></tbody>`;
+  }).join("")).join("");
+  return `<div class="lev-wt-wrap"><table class="lev-wt">
+    <colgroup><col style="width:6%"><col style="width:24%"><col style="width:13%"><col style="width:15%"><col style="width:8%"><col style="width:7%"><col style="width:7%"><col style="width:20%"></colgroup>
+    <thead><tr><th class="n">Cant.</th><th>Junta</th><th>Barreras</th><th>Producto</th><th>Longitud</th><th>Ancho</th><th>Espesor</th><th></th></tr></thead>
+    ${cuerpo}</table></div>`;
+}
+
 function renderTablaJuntasHTML(grupos) {
   if (grupos.length === 0) return `<div class="hint" style="margin:16px 0 0;">Todavía no hay juntas registradas. Usá "Levantamiento Juntas" arriba.</div>`;
   if (esVistaMovil()) return renderTablaMovilJuntasHTML(grupos);
-
-  const filas = [];
-  grupos.forEach(g => {
-    g.items.forEach((r, i) => filas.push({ r, esInicioZona: i === 0, zona: g.zona, zonaRaw: g.zonaRaw, nivel: g.nivel }));
-  });
-
-  return `
-    <div class="table-scroll">
-      <table class="resumen-table lev-tabla-resultados">
-        <thead><tr>
-          <th>Zona</th><th>Nivel</th><th class="num">Cant.</th><th>Junta</th><th>Barreras</th><th>Producto</th>
-          <th class="num">Longitud (cm)</th><th class="num">Ancho (cm)</th><th class="num">Espesor</th><th class="num">Sellador (cm³)</th><th class="num">Lana (unid.)</th><th>Nota</th><th></th>
-        </tr></thead>
-        <tbody>
-          ${filas.map(({ r, esInicioZona, zona, zonaRaw, nivel }) => {
-            const f = computeSingleJuntaRow(r);
-            const lanaUnid = r.calcularLana ? lanaUnidadesSinRedondear(f) * r.cantidad : 0;
-            return `<tr class="${esInicioZona ? "lev-tabla-nueva-zona" : ""}">
-              <td>${esInicioZona ? `<strong>${escapeHtml(zona)}</strong>${NOTAS_ZONA[claveNotaZona(zonaRaw, nivel)] ? `<br><span class="lev-sub-label">${escapeHtml(NOTAS_ZONA[claveNotaZona(zonaRaw, nivel)])}</span>` : ""}` : ""}</td>
-              <td>${escapeHtml(r.B) || "—"}</td>
-              <td class="num">${r.cantidad}</td>
-              <td>${escapeHtml(juntaLabelCorta(r, f.superiorInferior))}</td>
-              <td>${escapeHtml(barrerasLabelCorto(r.barreras))}</td>
-              <td>${escapeHtml(r.producto)}</td>
-              <td class="num">${r.longitud}</td>
-              <td class="num">${r.ancho}</td>
-              <td class="num">${f.espesorProductoIn !== null ? formatFraccionPulgadas(f.espesorProductoIn) : "—"}</td>
-              <td class="num">${roundup(f.volumenSellador * r.cantidad, 0)}</td>
-              <td class="num">${r.calcularLana ? (lanaUnid > 0 ? lanaUnid.toFixed(2) : "—") : "No"}</td>
-              <td>${escapeHtml(r.nota) || "—"}</td>
-              <td class="row-actions">
-                ${buscarPinDeFila(r._id, "junta") ? `<button class="icon-btn" data-lev-ver-pin="${r._id}" data-lev-ver-pin-tipo="junta" aria-label="Ver ubicación en plano"><svg class="icon"><use href="#i-pin"/></svg></button>` : ""}
-                ${(r.fotos && r.fotos.length) ? `<button class="icon-btn" data-lev-ver-fotos="${r._id}" data-lev-ver-fotos-tipo="junta" aria-label="Ver fotos"><svg class="icon"><use href="#i-camera"/></svg>${r.fotos.length > 1 ? `<span class="lev-foto-count">${r.fotos.length}</span>` : ""}</button>` : ""}
-                <button class="icon-btn" data-levj-tab-edit="${r._id}" aria-label="Editar"><svg class="icon"><use href="#i-edit"/></svg></button>
-                <button class="icon-btn icon-danger" data-levj-tab-del="${r._id}" aria-label="Eliminar"><svg class="icon"><use href="#i-close"/></svg></button>
-              </td>
-            </tr>`;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>`;
+  return renderTablaAnchaJuntasHTML(grupos);
 }
 
 function agruparJuntasPorCaracteristicas() {
@@ -2354,37 +2278,31 @@ function agruparJuntasPorCaracteristicas() {
   return grupos;
 }
 
+function renderTablaAnchaResumidaJuntasHTML(grupos) {
+  let alt = 0;
+  const cuerpo = grupos.map(({ rep: r, longitudTotal }) => {
+    const f = computeJuntaRow(Object.assign({}, r, { longitud: longitudTotal, cantidad: 1 }));
+    const lanaUnid = r.calcularLana ? lanaUnidadesSinRedondear(f) : 0;
+    const gris = [`Sellador: ${roundup(f.volumenSellador, 0)} cm³`, r.calcularLana ? (lanaUnid > 0 ? `Lana: ${lanaUnid.toFixed(2)} unid.` : "") : "Sin lana"].filter(Boolean).join(" · ");
+    return `<tbody class="lev-mt-bloque ${(alt++ % 2) ? "b2" : "b1"}"><tr>
+      <td class="lev-mt-cant">${Math.round(longitudTotal)}<small>cm</small></td>
+      <td><span class="pn">${escapeHtml(juntaLabelCorta(r, f.superiorInferior))}</span><small>${escapeHtml(gris)}</small></td>
+      <td>${escapeHtml(barrerasLabelCorto(r.barreras))}</td>
+      <td>${escapeHtml(r.producto)}</td>
+      <td>${r.ancho} cm</td>
+      <td>${f.espesorProductoIn !== null ? formatFraccionPulgadas(f.espesorProductoIn) : "—"}</td>
+    </tr></tbody>`;
+  }).join("");
+  return `<div class="lev-wt-wrap"><table class="lev-wt">
+    <colgroup><col style="width:9%"><col style="width:32%"><col style="width:18%"><col style="width:21%"><col style="width:10%"><col style="width:10%"></colgroup>
+    <thead><tr><th class="n">Long. total</th><th>Junta</th><th>Barreras</th><th>Producto</th><th>Ancho</th><th>Espesor</th></tr></thead>
+    ${cuerpo}</table></div>`;
+}
+
 function renderTablaResumidaJuntasHTML(grupos) {
   if (grupos.length === 0) return `<div class="hint" style="margin:16px 0 0;">Todavía no hay juntas registradas. Usá "Levantamiento Juntas" arriba.</div>`;
   if (esVistaMovil()) return renderTablaMovilResumidaJuntasHTML(grupos);
-
-  return `
-    <div class="table-scroll">
-      <table class="resumen-table lev-tabla-resultados">
-        <thead><tr>
-          <th>Junta</th><th>Barreras</th><th>Producto</th>
-          <th class="num">Longitud Total (cm)</th><th class="num">Ancho (cm)</th><th class="num">Espesor</th>
-          <th class="num">Sellador (cm³)</th><th class="num">Lana (unid.)</th>
-        </tr></thead>
-        <tbody>
-          ${grupos.map(({ rep: r, longitudTotal }) => {
-            const filaSintetica = Object.assign({}, r, { longitud: longitudTotal, cantidad: 1 });
-            const f = computeJuntaRow(filaSintetica);
-            const lanaUnid = r.calcularLana ? lanaUnidadesSinRedondear(f) : 0;
-            return `<tr>
-              <td>${escapeHtml(juntaLabelCorta(r, f.superiorInferior))}</td>
-              <td>${escapeHtml(barrerasLabelCorto(r.barreras))}</td>
-              <td>${escapeHtml(r.producto)}</td>
-              <td class="num"><strong>${Math.round(longitudTotal)}</strong></td>
-              <td class="num">${r.ancho}</td>
-              <td class="num">${f.espesorProductoIn !== null ? formatFraccionPulgadas(f.espesorProductoIn) : "—"}</td>
-              <td class="num">${roundup(f.volumenSellador, 0)}</td>
-              <td class="num">${r.calcularLana ? (lanaUnid > 0 ? lanaUnid.toFixed(2) : "—") : "No"}</td>
-            </tr>`;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>`;
+  return renderTablaAnchaResumidaJuntasHTML(grupos);
 }
 
 function renderLevantamientoTabJuntas() {
@@ -2464,7 +2382,7 @@ function switchTab(tab) {
 }
 
 try {
-  const mqMovil = window.matchMedia("(max-width: 640px)");
+  const mqMovil = window.matchMedia("(max-width: 899px)");
   const alCambiarAncho = () => { if (ACTIVE_TAB === "levantamiento-tab") renderLevantamientoTab(); };
   if (mqMovil.addEventListener) mqMovil.addEventListener("change", alCambiarAncho);
   else if (mqMovil.addListener) mqMovil.addListener(alCambiarAncho);
