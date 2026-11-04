@@ -1913,7 +1913,7 @@ function renderTablaMovilPenetrantesHTML(grupos) {
         <div class="lev-mt-izq">
           ${kv.length ? `<div class="lev-mt-kv">${kv.join("")}</div>` : ""}
           ${gris ? `<div class="lev-mt-gris">${escapeHtml(gris)}</div>` : ""}
-          ${r.R ? `<div class="lev-mt-nota">${escapeHtml(r.R)}</div>` : ""}
+          ${r.R ? `<div class="lev-mt-nota">Nota: ${escapeHtml(r.R)}</div>` : ""}
         </div>
         <div class="lev-mt-der">${ul}<span class="lev-mt-iconos">${camaraYPinMovilHTML(r, "pen")}</span></div>
       </div></td></tr>
@@ -1945,7 +1945,7 @@ function renderTablaMovilJuntasHTML(grupos) {
         <div class="lev-mt-izq">
           <div class="lev-mt-kv">${kv.join("")}</div>
           <div class="lev-mt-gris">${escapeHtml(gris)}</div>
-          ${r.nota ? `<div class="lev-mt-nota">${escapeHtml(r.nota)}</div>` : ""}
+          ${r.nota ? `<div class="lev-mt-nota">Nota: ${escapeHtml(r.nota)}</div>` : ""}
         </div>
         <div class="lev-mt-der"><span class="lev-mt-iconos">${camaraYPinMovilHTML(r, "junta")}</span></div>
       </div></td></tr>
