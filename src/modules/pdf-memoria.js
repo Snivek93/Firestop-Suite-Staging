@@ -141,13 +141,14 @@ const MEMORIA_NOTA_CINTA = "La longitud de cinta intumescente (y de collar metá
 // Clasifica una fila de penetrante en el mismo "caso" geométrico que usa
 // computeRow para armar U (área de apertura) — misma lógica exacta, para que
 // la Memoria de Cálculo muestre el desglose correcto según el tipo real.
-function clasificarSubcasoU(r) {
+function clasificarSubcasoU(r0) {
+  const r = (window.tipoBase && window.tipoBase(r0.L) !== r0.L) ? Object.assign({}, r0, { L: window.tipoBase(r0.L) }) : r0;
   if (isBlank(r.F) && eq(r.L, TIPO_VACIO)) return "vacio_redondo";
   if (isBlank(r.F)) return "tuberia_cable";
   if (eq(r.L, TIPO_DUCTO_RECT) || eq(r.L, TIPO_DUCTO_RECT_AISL)) return "ducto_rect";
   if (eq(r.L, TIPO_DUCTO_RED) || eq(r.L, TIPO_DUCTO_RED_AISL)) return "ducto_red";
   if (eq(r.L, TIPO_VIGA_W)) return "viga_w";
-  if (eq(r.L, TIPO_VIGA_CANAL)) return "viga_canal";
+  if (eq(r.L, TIPO_VIGA_CANAL)) return (r0.L === TIPO_VIGA_ANGULAR) ? "viga_angular" : "viga_canal";
   if (eq(r.L, TIPO_VIGA_TUBO)) return "viga_tubo";
   return "bandeja_rect";
 }
@@ -252,6 +253,19 @@ const MEMORIA_SUBCASOS_U = {
     titulo: "Viga Canal",
     formulas: [
       { resultadoSim: [mvs("PVIGA")], tokens: [mc("2"), mop("×"), mop("("), mc("2"), mop("×"), mvs("DIMA"), mop("+"), mvs("DIMB"), mop(")")], vars: [SIM.DIMA, SIM.DIMB] },
+      { resultadoSim: [mvs("ASELLO")], tokens: [mvs("PVIGA"), mop("×"), mvs("ANUL")], vars: [SIM.ANUL] },
+    ],
+    columnas: [
+      { key: "DIM.A", header: "DIM.A (cm)", get: r => fmtComa(r.F, 0) },
+      { key: "DIM.B", header: "DIM.B (cm)", get: r => fmtComa(r.G, 0) },
+      { key: "A_NUL", header: "A_NUL (in)", get: r => formatFraccionPulgadas(n(r.I) === 0 ? 0.5 : n(r.I)), getEjemplo: r => r.ANULAR_CM !== "-" ? fmtComa(r.ANULAR_CM, 2) : "-" },
+      { key: "P_VIGA", header: "P_VIGA (cm)", get: r => r.P_VIGA !== "-" ? fmtComa(r.P_VIGA, 1) : "-" },
+    ],
+  },
+  viga_angular: {
+    titulo: "Viga Angular",
+    formulas: [
+      { resultadoSim: [mvs("PVIGA")], tokens: [mvs("DIMA"), mop("+"), mvs("DIMB")], vars: [SIM.DIMA, SIM.DIMB] },
       { resultadoSim: [mvs("ASELLO")], tokens: [mvs("PVIGA"), mop("×"), mvs("ANUL")], vars: [SIM.ANUL] },
     ],
     columnas: [

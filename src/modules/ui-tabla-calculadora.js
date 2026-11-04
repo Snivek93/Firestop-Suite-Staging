@@ -124,7 +124,7 @@ function kFromL(L) {
     "Pasante Múltiple": "Multiple", "Vacío": "Vacio",
     "Viga W": "Viga", "Viga Canal": "Viga", "Viga Tubo Rectangular": "Viga"
   };
-  return map[L] || "";
+  return map[window.tipoBase ? window.tipoBase(L) : L] || "";
 }
 
 // Campos relevantes según el tipo de penetrante (para mostrar/ocultar inputs)

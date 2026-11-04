@@ -10,7 +10,7 @@
 
 function dbKey(N, L, M, AP, P) {
   const s = (v) => (v === null || v === undefined) ? "" : String(v);
-  return `${s(N)}${s(L)}${s(M)}${s(AP)}${s(P)}`;
+  return `${s(N)}${s(window.tipoBase ? window.tipoBase(L) : L)}${s(M)}${s(AP)}${s(P)}`;
 }
 // devuelve [espesor, norma1, link1, norma2, link2, norma3, link3, norma4, link4, norma5, link5]
 function dbLookup(key) {
@@ -151,14 +151,19 @@ function longitudCintaPorVueltas(diamIn, nVueltas) {
 // input = {A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P}  (según encabezados del Excel)
 // config = {C13,C14,C15} espesores de pared/entrepiso
 // ---------------------------------------------------------------------------
-function computeRow(row, config) {
+function computeRow(row0, config) {
+  // Tipos alias (Viga Angular / Concreto / Tensor Redondo): se calculan como su tipo base.
+  const LOrig = row0.L;
+  const LBase = window.tipoBase ? window.tipoBase(LOrig) : LOrig;
+  const row = (LBase !== LOrig) ? Object.assign({}, row0, { L: LBase }) : row0;
+  const esAngular = LOrig === TIPO_VIGA_ANGULAR;
   const { C, D, E, F, G, H, I, J, K, L, M, N, O, P, MEM, PPINST, PPSIZE, PPPLAST } = row;
   const out = {};
   // Propagar campos de identificación al out — la normativa y la UI los necesitan
   // desde las computed rows sin tener que cruzar con ROWS originales.
   out._id = row._id;
   out.P = P;
-  out.L = L;
+  out.L = LOrig;
   out.M = M;
   out.N = N;
   out.A = row.A;
@@ -229,11 +234,11 @@ function computeRow(row, config) {
     U = P_VIGA * ANULAR_CM;
   } else if (eq(L, TIPO_VIGA_CANAL) && n(I) === 0) {
     ANULAR_CM = 1.27;
-    P_VIGA = 2 * n(F) + 1 * n(G);
+    P_VIGA = (esAngular ? 1 : 2) * n(F) + 1 * n(G);
     U = P_VIGA * ANULAR_CM;
   } else if (eq(L, TIPO_VIGA_CANAL)) {
     ANULAR_CM = n(I) * 2.54;
-    P_VIGA = 2 * n(F) + 1 * n(G);
+    P_VIGA = (esAngular ? 1 : 2) * n(F) + 1 * n(G);
     U = P_VIGA * ANULAR_CM;
   } else if (eq(L, TIPO_VIGA_TUBO) && n(I) === 0) {
     ANULAR_CM = 1.27;

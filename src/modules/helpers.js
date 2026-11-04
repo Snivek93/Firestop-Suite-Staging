@@ -80,7 +80,7 @@ function materialRecomendado(L, diamIn) {
     "Viga Canal": "Pasta FS ONE MAX",
     "Viga Tubo Rectangular": "Pasta FS ONE MAX",
   };
-  return map[L] || OPTS_P[0];
+  return map[window.tipoBase ? window.tipoBase(L) : L] || OPTS_P[0];
 }
 
 // --- Exports usados por otros módulos ---

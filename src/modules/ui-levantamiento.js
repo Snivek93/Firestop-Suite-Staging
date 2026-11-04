@@ -75,9 +75,12 @@ const TIPO_LABEL_CORTO = {
   "Ducto Redondo Aislado": "Ducto red. aislado",
   "Pasante Múltiple": "Pasante múltiple",
   "Vacío": "Vacío",
-  "Viga W": "Viga W",
+  "Viga W": "Viga I/W",
   "Viga Canal": "Viga canal",
   "Viga Tubo Rectangular": "Viga tubo rect.",
+  "Viga Angular": "Viga angular",
+  "Viga Concreto": "Viga concreto",
+  "Viga Tensor Redondo": "Viga tensor red.",
 };
 
 function abrirVisorFotosFila(id, tipo) {
@@ -205,6 +208,7 @@ const LEV = {
   fotos: [],
   pinPendiente: null,
   editandoId: null,
+  familia: null, listaAbierta: false,
 };
 
 const ANCHOS_JUNTA_PRESET = [
@@ -239,6 +243,80 @@ const LEV_J = {
 
 function levUsaDimAB(L) {
   return camposRequeridos(L).F;
+}
+
+// ---------------------------------------------------------------------------
+// Selector de tipo de penetrante agrupado por familias (13 botones). El dato que
+// se guarda sigue siendo el tipo COMPLETO (ej. "Ducto Redondo Aislado"): las
+// familias, el aislamiento, la forma y el subtipo de viga son solo la forma de
+// elegirlo en pantalla. Por eso el cálculo, los PDF y los proyectos viejos no cambian.
+const LEV_FAMILIAS = [
+  { id: "tub_metal", label: "Tub. metal", nombre: "Tubería metal", tipos: ["Tubería Metal", "Tubería Metal Aislado"], aislable: true },
+  { id: "cobre", label: "Cobre HVAC", nombre: "Cobre HVAC aislado", tipos: ["Tubería Cobre Aislado HVAC"] },
+  { id: "emt", label: "EMT", nombre: "EMT", tipos: ["Tubería EMT"] },
+  { id: "comb", label: "Combustible", nombre: "Combustible (PVC)", tipos: ["Tubería Combustible (PVC, CPVC, PEX, PP-R)", "Tubería Combustible Aislada (PVC, CPVC, PEX, PP-R)"], aislable: true },
+  { id: "bandeja", label: "Bandeja", nombre: "Bandeja de cables", tipos: ["Bandeja de Cables"] },
+  { id: "cable_armado", label: "Cable armado", nombre: "Cable armado", tipos: ["Cable Armado"] },
+  { id: "paso", label: "Paso repen.", nombre: "Paso repenetrable", tipos: ["Cables en Paso Repenetrable"] },
+  { id: "sueltos", label: "Cables sueltos", nombre: "Cables sueltos", tipos: ["Cables Sueltos"] },
+  { id: "caja", label: "Caja electro.", nombre: "Caja electromec.", tipos: ["Caja Electromecánica UL"] },
+  { id: "ducto", label: "Ducto", nombre: "Ducto", tipos: ["Ducto Rectangular", "Ducto Rectangular Aislado", "Ducto Redondo", "Ducto Redondo Aislado"], ducto: true },
+  { id: "pasante", label: "Pasante múlt.", nombre: "Pasante múltiple", tipos: ["Pasante Múltiple"] },
+  { id: "vacio", label: "Vacío", nombre: "Vacío", tipos: ["Vacío"] },
+  { id: "viga", label: "Viga", nombre: "Viga", viga: true,
+    tipos: ["Viga W", "Viga Canal", "Viga Angular", "Viga Tubo Rectangular", "Viga Concreto", "Viga Tensor Redondo"] },
+];
+const LEV_VIGA_SUBTIPOS = [
+  { tipo: "Viga W", label: "I / W" }, { tipo: "Viga Canal", label: "Canal" }, { tipo: "Viga Angular", label: "Angular" },
+  { tipo: "Viga Tubo Rectangular", label: "Tubo rectangular" }, { tipo: "Viga Concreto", label: "Concreto" },
+  { tipo: "Viga Tensor Redondo", label: "Tensor redondo" },
+];
+function levFamiliaDeTipo(L) {
+  const f = LEV_FAMILIAS.find(x => x.tipos.includes(L));
+  return f ? f.id : null;
+}
+function levTipoDucto(redondo, aislado) {
+  if (redondo) return aislado ? "Ducto Redondo Aislado" : "Ducto Redondo";
+  return aislado ? "Ducto Rectangular Aislado" : "Ducto Rectangular";
+}
+// Reinicia los datos del formulario al elegir un tipo (misma lógica de siempre).
+function levResetPorTipo(valor) {
+  LEV.tipo = valor;
+  LEV.diametro = ""; LEV.dimA = ""; LEV.dimB = ""; LEV.profCaja = ""; LEV.vacioModo = "dim"; LEV.diametroLibre = "";
+  LEV.espesorAislamiento = ""; LEV.espesorAislamientoOtro = false; LEV.ocupacion = ""; LEV.materialMultiple = "Pasta FS ONE MAX";
+  LEV.anularOtro = false;
+  LEV.anular = valor === "Bandeja de Cables" ? 0 : 0.5;
+  LEV.puttyPlast = false;
+  // F Rating: "-" por defecto; en cajas electromecánicas sí cuenta, así que parte en 1 Hora.
+  LEV.fRating = (valor === "Caja Electromecánica UL") ? (LEV.fRating === "-" ? "1 Hora" : LEV.fRating) : "-";
+  if (valor === "Caja Electromecánica UL") {
+    LEV.barrera = "Pared"; LEV.material = "Panel de Yeso"; LEV.membrana = true;
+    aplicarPresetCaja("10x10x5");
+  }
+}
+function levSeccionTipoHTML() {
+  const fam = LEV.familia ? LEV_FAMILIAS.find(f => f.id === LEV.familia) : null;
+  const colapsada = !!fam && !LEV.listaAbierta;
+  const sub = (titulo, chips) => `<div class="lev-section"><label>${titulo}</label><div class="lev-chip-grid lev-chip-grid-2">${chips}</div></div>`;
+  let html = "";
+  if (colapsada) {
+    const txt = LEV.tipo ? (TIPO_LABEL_CORTO[LEV.tipo] || LEV.tipo) : fam.nombre;
+    html += `<div class="lev-section"><label>Penetrante</label><div class="lev-tipo-barra"><div class="lev-tipo-barra-txt">${escapeHtml(txt)}</div><button type="button" class="lev-chip lev-tipo-barra-btn" id="lev-btn-cambiar-tipo">Cambiar ▾</button></div></div>`;
+  } else {
+    html += `<div class="lev-section"><label>Penetrante</label><div class="lev-chip-grid lev-chip-grid-compacto">${LEV_FAMILIAS.map(f => levChip("familia", f.id, f.label, LEV.familia === f.id)).join("")}</div></div>`;
+  }
+  if (fam && fam.viga) {
+    html += sub("Tipo de viga", LEV_VIGA_SUBTIPOS.map(v => levChip("subviga", v.tipo, v.label, LEV.tipo === v.tipo)).join(""));
+  }
+  if (fam && fam.ducto && LEV.tipo) {
+    const red = /Redondo/.test(LEV.tipo);
+    html += sub("Forma", levChip("forma", "rect", "Rectangular", !red) + levChip("forma", "red", "Redondo", red));
+  }
+  if (fam && (fam.aislable || fam.ducto) && LEV.tipo) {
+    const ais = levEsAislado(LEV.tipo);
+    html += sub("Aislamiento", levChip("aislamiento", "no", "Sin aislar", !ais) + levChip("aislamiento", "si", "Aislado", ais));
+  }
+  return html;
 }
 
 function levChip(grupo, valor, label, activo, deshabilitado) {
@@ -1268,12 +1346,7 @@ function renderLevantamiento() {
       </div>
       ${LEV.editandoId ? `<div class="lev-editing-banner"><svg class="icon"><use href="#i-edit"/></svg>Editando un elemento de la lista — al tocar "Añadir" se guardan los cambios. <button type="button" id="lev-cancelar-edicion">Cancelar</button></div>` : ""}
 
-      <div class="lev-section">
-        <label>Penetrante</label>
-        <div class="lev-chip-grid">
-          ${TIPOS_LEVANTAMIENTO.map(t => levChip("tipo", t, TIPO_LABEL_CORTO[t] || t, LEV.tipo === t)).join("")}
-        </div>
-      </div>
+      ${levSeccionTipoHTML()}
 
       ${LEV.tipo ? `
       <div class="lev-section">
@@ -1558,19 +1631,28 @@ function attachLevantamientoEvents() {
     btn.addEventListener("click", () => {
       const grupo = btn.dataset.levGrupo;
       let valor = btn.dataset.levValor;
-      if (grupo === "tipo") {
-        LEV.tipo = valor;
-        LEV.diametro = ""; LEV.dimA = ""; LEV.dimB = ""; LEV.profCaja = ""; LEV.vacioModo = "dim"; LEV.diametroLibre = "";
-        LEV.espesorAislamiento = ""; LEV.espesorAislamientoOtro = false; LEV.ocupacion = ""; LEV.materialMultiple = "Pasta FS ONE MAX";
-        LEV.anularOtro = false;
-        LEV.anular = valor === "Bandeja de Cables" ? 0 : 0.5;
-        LEV.puttyPlast = false;
-        // F Rating: "-" por defecto; en cajas electromecánicas sí cuenta, así que parte en 1 Hora.
-        LEV.fRating = (valor === "Caja Electromecánica UL") ? (LEV.fRating === "-" ? "1 Hora" : LEV.fRating) : "-";
-        if (valor === "Caja Electromecánica UL") {
-          LEV.barrera = "Pared"; LEV.material = "Panel de Yeso"; LEV.membrana = true;
-          aplicarPresetCaja("10x10x5");
+      if (grupo === "familia") {
+        const f = LEV_FAMILIAS.find(x => x.id === valor);
+        if (f && LEV.familia === valor && (LEV.tipo || f.viga)) {
+          LEV.listaAbierta = false;           // mismo botón: solo cierra la lista, no borra lo ya elegido
+        } else if (f) {
+          LEV.familia = valor; LEV.listaAbierta = false;
+          levResetPorTipo(f.viga ? null : f.tipos[0]); // siempre arranca "Sin aislar" (Ducto: rectangular)
         }
+      } else if (grupo === "aislamiento") {
+        const f = LEV_FAMILIAS.find(x => x.id === LEV.familia);
+        const ais = valor === "si";
+        if (f && f.ducto) LEV.tipo = levTipoDucto(/Redondo/.test(LEV.tipo || ""), ais);
+        else if (f && f.aislable) LEV.tipo = f.tipos[ais ? 1 : 0];
+        LEV.espesorAislamiento = ""; LEV.espesorAislamientoOtro = false;
+      } else if (grupo === "forma") {
+        LEV.tipo = levTipoDucto(valor === "red", levEsAislado(LEV.tipo || ""));
+        LEV.dimA = ""; LEV.dimB = ""; LEV.diametroLibre = ""; LEV.espesorAislamiento = ""; LEV.espesorAislamientoOtro = false;
+      } else if (grupo === "subviga") {
+        if (LEV.tipo && levUsaDimAB(LEV.tipo) && levUsaDimAB(valor)) LEV.tipo = valor; // conserva A×B ya escritos
+        else levResetPorTipo(valor);
+      } else if (grupo === "tipo") {
+        levResetPorTipo(valor);
       } else if (grupo === "vacioModo") {
         LEV.vacioModo = valor;
         LEV.diametro = ""; LEV.dimA = ""; LEV.dimB = "";
@@ -1609,13 +1691,16 @@ function attachLevantamientoEvents() {
     });
   });
 
+  const btnCambiarTipo = document.getElementById("lev-btn-cambiar-tipo");
+  if (btnCambiarTipo) btnCambiarTipo.addEventListener("click", () => { LEV.listaAbierta = true; renderLevantamiento(); });
+
   const btnAgregar = document.getElementById("lev-btn-agregar");
   if (btnAgregar) btnAgregar.addEventListener("click", agregarDesdeLevantamiento);
 
   const btnCancelarEdicion = document.getElementById("lev-cancelar-edicion");
   if (btnCancelarEdicion) btnCancelarEdicion.addEventListener("click", () => {
     if (LEV._filaRespaldo) { ROWS.push(LEV._filaRespaldo); LEV._filaRespaldo = null; marcarCambio(); }
-    LEV.editandoId = null; LEV.tipo = null; LEV.diametro = ""; LEV.dimA = ""; LEV.dimB = ""; LEV.cantidad = 1;
+    LEV.editandoId = null; LEV.tipo = null; LEV.familia = null; LEV.listaAbierta = false; LEV.diametro = ""; LEV.dimA = ""; LEV.dimB = ""; LEV.cantidad = 1;
     renderLevantamiento();
   });
 
@@ -1662,6 +1747,7 @@ function editarItemLevantamiento(id, abrirFullscreen) {
 
   LEV.zona = row.A || ""; LEV.nivel = row.B || "";
   LEV.tipo = row.L;
+  LEV.familia = levFamiliaDeTipo(row.L); LEV.listaAbierta = false;
   LEV.vacioModo = "dim";
   LEV.dimUnidad = "cm";
   if (levUsaDiametroLibre(row.L)) {
@@ -1823,6 +1909,7 @@ function agregarDesdeLevantamiento() {
   const fueEdicion = !!LEV.editandoId;
   LEV.diametro = ""; LEV.dimA = ""; LEV.dimB = ""; LEV.profCaja = ""; LEV.vacioModo = "dim"; LEV.diametroLibre = "";
   LEV.espesorAislamiento = ""; LEV.espesorAislamientoOtro = false; LEV.ocupacion = ""; LEV.cantidad = 1; LEV.editandoId = null; LEV.nota = ""; LEV.fotos = []; LEV.pinPendiente = null;
+  LEV.tipo = null; LEV.familia = null; LEV.listaAbierta = false; // vuelve arriba con la lista de tipos desplegada
 
   marcarCambio();
   renderLevantamiento();
@@ -1854,6 +1941,9 @@ const PRODUCTOS_POR_TIPO = {
   "Viga W": ["Pasta FS ONE MAX"],
   "Viga Canal": ["Pasta FS ONE MAX","Sellador CP 606"],
   "Viga Tubo Rectangular": ["Pasta FS ONE MAX"],
+  "Viga Angular": ["Pasta FS ONE MAX","Sellador CP 606"],
+  "Viga Concreto": ["Pasta FS ONE MAX","Sellador CP 606","Sellador CFS SIL GG"],
+  "Viga Tensor Redondo": ["Pasta FS ONE MAX","Sellador CP 606"],
 };
 
 const PROD_LABEL = {

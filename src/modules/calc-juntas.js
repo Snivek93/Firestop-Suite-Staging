@@ -362,7 +362,7 @@ function tituloCaseProducto(s) {
 function camposRequeridos(L) {
   const usaDimAB = ["Ducto Rectangular", "Ducto Rectangular Aislado", "Ducto Redondo", "Ducto Redondo Aislado",
     "Viga W", "Viga Canal", "Viga Tubo Rectangular", "Caja Electromecánica UL",
-    "Bandeja de Cables", "Pasante Múltiple", "Vacío"].includes(L);
+    "Bandeja de Cables", "Pasante Múltiple", "Vacío"].includes(window.tipoBase ? window.tipoBase(L) : L);
   const esCaja = L === "Caja Electromecánica UL";
   return {
     D: !usaDimAB,

@@ -1427,3 +1427,13 @@ button.primary:not(:disabled):active, button.secondary:not(:disabled):active, bu
   .lev-wt .cg-wide { display: table-column-group; }
   .lev-wt .cg-narrow, .lev-wt .lev-wt-calc-inline { display: none; }
 }
+
+/* Selector de tipo por familias (Levantamiento de penetrantes) */
+.lev-chip-grid-compacto { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.lev-chip-grid-compacto .lev-chip { min-height: 44px; padding: 0 4px; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+@media (max-width: 359px) { .lev-chip-grid-compacto { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 900px) { .lev-chip-grid-compacto { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); } }
+.lev-chip-grid-2 { grid-template-columns: repeat(2, 1fr); }
+.lev-tipo-barra { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); padding: 10px 12px; }
+.lev-tipo-barra-txt { font-size: 16px; font-weight: 800; color: var(--ink); min-width: 0; overflow-wrap: break-word; }
+.lev-tipo-barra-btn { padding: 10px 14px; font-weight: 700; white-space: nowrap; flex-shrink: 0; }

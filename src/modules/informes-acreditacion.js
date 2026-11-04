@@ -107,7 +107,7 @@ const PRODUCTOS_CON_CINTA = new Set(["Cinta con Collar Metálico CP 648-E/ER", "
 const PRODUCTOS_CON_COLLAR_METALICO = new Set(["Cinta con Collar Metálico CP 648-E/ER", "Collarín CP 643N/644"]);
 const TIPOS_CON_LANA_MINERAL = new Set([
   "Bandeja de Cables", "Ducto Rectangular", "Ducto Rectangular Aislado", "Ducto Redondo", "Ducto Redondo Aislado",
-  "Pasante Múltiple", "Vacío", "Viga W", "Viga Canal", "Viga Tubo Rectangular",
+  "Pasante Múltiple", "Vacío", "Viga W", "Viga Canal", "Viga Tubo Rectangular", "Viga Angular", "Viga Concreto",
 ]);
 const PRODUCTOS_CON_LANA_MINERAL = new Set([
   "Espuma CP 620", "Almohadilla CFS-BL", 'Manga CP 653 4"', 'Paso de cables MSL M 3"x4"', 'Paso de cables MSL L 6"x4"', "Mortero CP 637",
@@ -1244,6 +1244,9 @@ const ACR_TIPO_PLURAL = {
   "Viga W": "Las vigas W",
   "Viga Canal": "Las vigas canal",
   "Viga Tubo Rectangular": "Las vigas de tubo rectangular",
+  "Viga Angular": "Las vigas angulares",
+  "Viga Concreto": "Las vigas de concreto",
+  "Viga Tensor Redondo": "Los tensores redondos",
 };
 const ACR_PRODUCTO_PROSA = {
   "Pasta FS ONE MAX": "pasta intumescente FS ONE MAX",

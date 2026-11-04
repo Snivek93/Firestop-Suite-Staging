@@ -34,6 +34,19 @@ const TIPO_VACIO = "Vacío";
 const TIPO_VIGA_W = "Viga W";
 const TIPO_VIGA_CANAL = "Viga Canal";
 const TIPO_VIGA_TUBO = "Viga Tubo Rectangular";
+const TIPO_VIGA_ANGULAR = "Viga Angular";
+const TIPO_VIGA_CONCRETO = "Viga Concreto";
+const TIPO_VIGA_TENSOR = "Viga Tensor Redondo";
+
+// Tipos "alias": se calculan y buscan en la tabla UL como otro tipo ya existente.
+//  - Viga Angular  -> como Viga Canal (el perímetro se ajusta a 1xF + 1xG en computeRow).
+//  - Viga Concreto -> exactamente como Ducto Rectangular.
+//  - Viga Tensor Redondo -> exactamente como Tubería Metal.
+const TIPO_ALIAS_CALCULO = {};
+TIPO_ALIAS_CALCULO[TIPO_VIGA_ANGULAR] = TIPO_VIGA_CANAL;
+TIPO_ALIAS_CALCULO[TIPO_VIGA_CONCRETO] = TIPO_DUCTO_RECT;
+TIPO_ALIAS_CALCULO[TIPO_VIGA_TENSOR] = TIPO_TUB_METAL;
+function tipoBase(L) { return TIPO_ALIAS_CALCULO[L] || L; }
 
 const MAT_PASTA = "Pasta FS ONE MAX";
 const MAT_CINTA_CON = "Cinta con Collar Metálico CP 648-E/ER";
@@ -95,6 +108,10 @@ window.TIPO_VACIO = TIPO_VACIO;
 window.TIPO_VIGA_W = TIPO_VIGA_W;
 window.TIPO_VIGA_CANAL = TIPO_VIGA_CANAL;
 window.TIPO_VIGA_TUBO = TIPO_VIGA_TUBO;
+window.TIPO_VIGA_ANGULAR = TIPO_VIGA_ANGULAR;
+window.TIPO_VIGA_CONCRETO = TIPO_VIGA_CONCRETO;
+window.TIPO_VIGA_TENSOR = TIPO_VIGA_TENSOR;
+window.tipoBase = tipoBase;
 window.MAT_PASTA = MAT_PASTA;
 window.MAT_CINTA_CON = MAT_CINTA_CON;
 window.MAT_CINTA_SIN = MAT_CINTA_SIN;
