@@ -267,8 +267,8 @@ const LEV_FAMILIAS = [
     tipos: ["Viga W", "Viga Canal", "Viga Angular", "Viga Tubo Rectangular", "Viga Concreto", "Viga Tensor Redondo"] },
 ];
 const LEV_VIGA_SUBTIPOS = [
-  { tipo: "Viga W", label: "I / W" }, { tipo: "Viga Canal", label: "Canal" }, { tipo: "Viga Angular", label: "Angular" },
-  { tipo: "Viga Tubo Rectangular", label: "Tubo rectangular" }, { tipo: "Viga Concreto", label: "Concreto" },
+  { tipo: "Viga Concreto", label: "Concreto" }, { tipo: "Viga W", label: "I / W" }, { tipo: "Viga Canal", label: "Canal" },
+  { tipo: "Viga Angular", label: "Angular" }, { tipo: "Viga Tubo Rectangular", label: "Tubo rectangular" },
   { tipo: "Viga Tensor Redondo", label: "Tensor redondo" },
 ];
 function levFamiliaDeTipo(L) {
@@ -1929,11 +1929,11 @@ const PRODUCTOS_POR_TIPO = {
   "Ducto Redondo Aislado": ["Pasta FS ONE MAX","Sellador CP 606","Sellador CFS SIL GG"],
   "Pasante Múltiple": ["Pasta FS ONE MAX","Espuma CP 620","Almohadilla CFS-BL","Mortero CP 637","Sellador CP 606","Sellador CFS SIL GG"],
   "Vacío": ["Pasta FS ONE MAX","Espuma CP 620","Almohadilla CFS-BL","Mortero CP 637","Sellador CP 606","Sellador CFS SIL GG"],
-  "Viga W": ["Pasta FS ONE MAX"],
+  "Viga W": ["Pasta FS ONE MAX","Sellador CP 606"],
   "Viga Canal": ["Pasta FS ONE MAX","Sellador CP 606"],
-  "Viga Tubo Rectangular": ["Pasta FS ONE MAX"],
+  "Viga Tubo Rectangular": ["Pasta FS ONE MAX","Sellador CP 606"],
   "Viga Angular": ["Pasta FS ONE MAX","Sellador CP 606"],
-  "Viga Concreto": ["Pasta FS ONE MAX","Sellador CP 606","Sellador CFS SIL GG"],
+  "Viga Concreto": ["Pasta FS ONE MAX","Sellador CP 606"],
   "Viga Tensor Redondo": ["Pasta FS ONE MAX","Sellador CP 606"],
 };
 

@@ -10,7 +10,11 @@
 
 function dbKey(N, L, M, AP, P) {
   const s = (v) => (v === null || v === undefined) ? "" : String(v);
-  return `${s(N)}${s(window.tipoBase ? window.tipoBase(L) : L)}${s(M)}${s(AP)}${s(P)}`;
+  const tUL = window.tipoUL ? window.tipoUL(L) : (window.tipoBase ? window.tipoBase(L) : L);
+  // Viga W / Viga Tubo Rectangular con Sellador CP 606: usan el mismo sistema UL que con Pasta
+  // (confirmado por Kevin 04/11/2026); la tabla solo trae filas con Pasta para esos tipos.
+  const pKey = ((tUL === TIPO_VIGA_W || tUL === TIPO_VIGA_TUBO) && P === MAT_CP606) ? MAT_PASTA : P;
+  return `${s(N)}${s(tUL)}${s(M)}${s(AP)}${s(pKey)}`;
 }
 // devuelve [espesor, norma1, link1, norma2, link2, norma3, link3, norma4, link4, norma5, link5]
 function dbLookup(key) {
@@ -263,7 +267,7 @@ function computeRow(row0, config) {
   out.A_VIGA = A_VIGA; out.P_VIGA = P_VIGA; out.DA_TOTAL = DA_TOTAL; out.DB_TOTAL = DB_TOTAL; out.ANULAR_CM = ANULAR_CM;
 
   // Q: NORMATIVA
-  const key = dbKey(N, L, M, AP, P);
+  const key = dbKey(N, LOrig, M, AP, P); // LOrig: el sistema UL se busca con el tipo original (tipoUL)
   // band 1..5 -> [norma_index, link_index] en el array MAIN_TABLE[key] (0-based, arranca en J)
   const BAND_IDX = { 1: [1, 2], 2: [3, 4], 3: [5, 6], 4: [7, 8], 5: [9, 10] };
   function hy(band) {

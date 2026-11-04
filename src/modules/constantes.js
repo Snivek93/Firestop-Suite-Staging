@@ -47,6 +47,10 @@ TIPO_ALIAS_CALCULO[TIPO_VIGA_ANGULAR] = TIPO_VIGA_CANAL;
 TIPO_ALIAS_CALCULO[TIPO_VIGA_CONCRETO] = TIPO_DUCTO_RECT;
 TIPO_ALIAS_CALCULO[TIPO_VIGA_TENSOR] = TIPO_TUB_METAL;
 function tipoBase(L) { return TIPO_ALIAS_CALCULO[L] || L; }
+// Tipo con el que se BUSCA el sistema UL (tabla MAIN_TABLE). Igual que tipoBase salvo
+// Viga Tensor Redondo y Viga Concreto: el cálculo es como Tubería Metal / Ducto Rectangular
+// pero su sistema UL es el de Viga Canal (confirmado por Kevin 04/11/2026).
+function tipoUL(L) { return (L === TIPO_VIGA_TENSOR || L === TIPO_VIGA_CONCRETO) ? TIPO_VIGA_CANAL : tipoBase(L); }
 
 const MAT_PASTA = "Pasta FS ONE MAX";
 const MAT_CINTA_CON = "Cinta con Collar Metálico CP 648-E/ER";
@@ -112,6 +116,7 @@ window.TIPO_VIGA_ANGULAR = TIPO_VIGA_ANGULAR;
 window.TIPO_VIGA_CONCRETO = TIPO_VIGA_CONCRETO;
 window.TIPO_VIGA_TENSOR = TIPO_VIGA_TENSOR;
 window.tipoBase = tipoBase;
+window.tipoUL = tipoUL;
 window.MAT_PASTA = MAT_PASTA;
 window.MAT_CINTA_CON = MAT_CINTA_CON;
 window.MAT_CINTA_SIN = MAT_CINTA_SIN;
