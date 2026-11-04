@@ -638,7 +638,7 @@ function renderListaLevJ() {
   if (grupos.length === 0) { cont.innerHTML = `<div class="hint" style="margin:0;">Todavía no agregaste ninguna junta.</div>`; return; }
   cont.innerHTML = grupos.map(g => `
     <div class="lev-zona-group">
-      <div class="lev-zona-title">${escapeHtml(g.zona)} <span class="lev-hint-sticky">(${g.items.length})</span></div>
+      ${zonaEncabezadoHTML("junta", g, true)}
       <div class="lev-recent-list">
         ${g.items.map(r => `
         <div class="lev-recent-item">
@@ -672,12 +672,16 @@ function renderListaLevJ() {
   cont.querySelectorAll("[data-levj-del-btn]").forEach(btn => {
     btn.addEventListener("click", () => {
       const id = parseInt(btn.dataset.levjDelBtn, 10);
-      pushUndo();
-      ROWS_J = ROWS_J.filter(r => r._id !== id);
-      marcarCambio();
-      renderListaLevJ();
+      const fila = ROWS_J.find(r => r._id === id);
+      borrarConConfirmacionSiHayFotos(fila, () => {
+        pushUndo();
+        ROWS_J = ROWS_J.filter(r => r._id !== id);
+        marcarCambio();
+        renderListaLevJ();
+      });
     });
   });
+  adjuntarAccionesZona(cont);
 }
 
 function editarItemLevJ(id) {
@@ -974,28 +978,36 @@ function agruparPorZona() {
 }
 
 // ============================================================================
-// Renombrar/multiplicar una zona en bloque — antes, corregir un nombre de
-// zona escrito mal a propósito significaba entrar fila por fila a
-// corregirlo, y repetir un nivel completo para un edificio con niveles
-// iguales significaba cargar todo de nuevo desde cero. Kevin, 10/09/2026.
+// Acciones de zona/nivel (penetrantes Y juntas): renombrar tocando el título,
+// Duplicar (una copia por toque), Multiplicar/Dividir cantidades y Nota.
+// `tipo` = "pen" (ROWS) | "junta" (ROWS_J). Kevin, 11/2026.
 // ============================================================================
-function filasDelGrupo(zonaRaw, nivel) {
-  return ROWS.filter(r => (r.A || "(sin zona)") === zonaRaw && (r.B || "") === nivel);
+function filasZona(tipo, zonaRaw, nivel) {
+  const arr = tipo === "junta" ? ROWS_J : ROWS;
+  return arr.filter(r => (r.A || "(sin zona)") === zonaRaw && (r.B || "") === nivel);
 }
-function abrirModalRenombrarZona(zonaRaw, nivel) {
-  const filas = filasDelGrupo(zonaRaw, nivel);
+function campoCantidadZona(tipo) { return tipo === "junta" ? "cantidad" : "C"; }
+function tituloZona(zonaRaw, nivel) {
+  return (zonaRaw === "(sin zona)" ? "Sin zona" : zonaRaw) + (nivel ? " " + nivel : "");
+}
+function claveNotaZona(zonaRaw, nivel) { return (zonaRaw || "(sin zona)") + "‖" + (nivel || ""); }
+function refrescarTrasCambioZona() {
+  if (document.body.classList.contains("modo-levantamiento")) renderLevantamiento();
+  renderLevantamientoTab();
+}
+
+function abrirModalRenombrarZona(tipo, zonaRaw, nivel) {
+  const filas = filasZona(tipo, zonaRaw, nivel);
   const zonaActual = zonaRaw === "(sin zona)" ? "" : zonaRaw;
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
     <div class="modal-box">
-      <p style="font-weight:600;margin:0 0 12px;">Renombrar zona / nivel</p>
-      <p class="hint" style="margin:0 0 12px;">Se actualizan las ${filas.length} fila(s) de este grupo.</p>
-      <label class="lev-field-label">Zona
+      <label class="lev-field-label" style="display:block;">Zona
         <input type="text" id="lev-renombrar-zona" value="${escapeHtml(zonaActual)}" placeholder="Ej. Cuarto eléctrico">
       </label>
-      <label class="lev-field-label">Nivel
-        <input type="text" id="lev-renombrar-nivel" value="${escapeHtml(nivel)}" placeholder="Opcional" style="margin-top:8px;">
+      <label class="lev-field-label" style="display:block;margin-top:10px;">Nivel
+        <input type="text" id="lev-renombrar-nivel" value="${escapeHtml(nivel)}" placeholder="Opcional">
       </label>
       <div class="modal-actions">
         <button class="secondary" data-act="cancel">Cancelar</button>
@@ -1010,56 +1022,109 @@ function abrirModalRenombrarZona(zonaRaw, nivel) {
       const nuevoNivel = document.getElementById("lev-renombrar-nivel").value.trim();
       pushUndo();
       filas.forEach(r => { r.A = nuevaZona; r.B = nuevoNivel; });
+      // La nota de zona acompaña al renombrado (si nadie más usa la clave vieja).
+      const claveVieja = claveNotaZona(zonaRaw, nivel), claveNueva = claveNotaZona(nuevaZona, nuevoNivel);
+      if (claveVieja !== claveNueva && NOTAS_ZONA[claveVieja]) {
+        const sigueEnUso = ROWS.concat(ROWS_J).some(r => claveNotaZona(r.A, r.B) === claveVieja);
+        if (!sigueEnUso) {
+          if (!NOTAS_ZONA[claveNueva]) NOTAS_ZONA[claveNueva] = NOTAS_ZONA[claveVieja];
+          delete NOTAS_ZONA[claveVieja];
+        }
+      }
       marcarCambio();
       overlay.remove();
-      renderLevantamiento();
+      refrescarTrasCambioZona();
       mostrarToast(`Zona actualizada en ${filas.length} fila(s).`);
     }
   });
 }
-function abrirModalMultiplicarZona(zonaRaw, nivel) {
-  const filas = filasDelGrupo(zonaRaw, nivel);
+
+function duplicarZona(tipo, zonaRaw, nivel) {
+  const filas = filasZona(tipo, zonaRaw, nivel);
+  if (!filas.length) return;
+  const arr = tipo === "junta" ? ROWS_J : ROWS;
+  const base = (zonaRaw === "(sin zona)" ? "Sin zona" : zonaRaw).replace(/\s*\(\d+\)$/, "");
+  const existe = (nombre) => ROWS.concat(ROWS_J).some(r => (r.A || "") === nombre && (r.B || "") === nivel);
+  let k = 1;
+  while (existe(`${base} (${k})`)) k++;
+  const nuevoNombre = `${base} (${k})`;
+  pushUndo();
+  const clones = filas.map(o => {
+    const c = Object.assign({}, o, { _id: tipo === "junta" ? ROW_J_SEQ++ : ROW_SEQ++, A: nuevoNombre });
+    c.fotos = [];   // las fotos son evidencia de cada línea: la copia no las hereda
+    delete c.foto;
+    return c;
+  });
+  const reCopia = new RegExp("^" + base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + " \\(\\d+\\)$");
+  const idxRelacionadas = arr.map((r, i) => ((filas.indexOf(r) !== -1) || (reCopia.test(r.A || "") && (r.B || "") === nivel)) ? i : -1).filter(i => i !== -1);
+  const ultimo = Math.max.apply(null, idxRelacionadas);
+  arr.splice.apply(arr, [ultimo + 1, 0].concat(clones));
+  const nota = NOTAS_ZONA[claveNotaZona(zonaRaw, nivel)];
+  if (nota) NOTAS_ZONA[claveNotaZona(nuevoNombre, nivel)] = nota;
+  marcarCambio();
+  refrescarTrasCambioZona();
+  mostrarToast(`Duplicada como «${tituloZona(nuevoNombre, nivel)}».`);
+}
+
+function abrirModalMultiplicarZona(tipo, zonaRaw, nivel) {
+  const filas = filasZona(tipo, zonaRaw, nivel);
+  const campo = campoCantidadZona(tipo);
+  let modo = "x", valor = 2;
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
     <div class="modal-box">
-      <p style="font-weight:600;margin:0 0 12px;">Multiplicar zona / nivel</p>
-      <p class="hint" style="margin:0 0 12px;">Se crean copias completas de las ${filas.length} fila(s) de este grupo (mismo penetrante, producto y dimensiones — sin fotos, esas son evidencia real de cada visita). Cada copia queda separada de las demás, marcada temporalmente, para que le pongas el nombre real después.</p>
-      <label class="lev-field-label">¿Cuántos en total? (incluyendo este)
-        <input type="number" id="lev-multiplicar-total" min="2" max="50" value="2" inputmode="numeric">
-      </label>
+      <div class="lev-mult-modos">
+        <button type="button" class="lev-chip lev-chip-active" data-modo="x">× Multiplicar</button>
+        <button type="button" class="lev-chip" data-modo="div">÷ Dividir</button>
+      </div>
+      <div class="lev-mult-stepper">
+        <button type="button" data-paso="-1" aria-label="Menos">−</button>
+        <input type="number" id="lev-mult-valor" min="2" max="99" value="2" inputmode="numeric" aria-label="Cantidad">
+        <button type="button" data-paso="1" aria-label="Más">+</button>
+      </div>
+      <div class="lev-mult-resumen" id="lev-mult-resumen">× 2</div>
       <div class="modal-actions">
         <button class="secondary" data-act="cancel">Cancelar</button>
-        <button class="primary" data-act="confirmar">Multiplicar</button>
+        <button class="primary" data-act="aplicar">Aplicar</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
+  const inp = overlay.querySelector("#lev-mult-valor");
+  const res = overlay.querySelector("#lev-mult-resumen");
+  const leer = () => Math.max(2, Math.min(99, parseInt(inp.value, 10) || 2));
+  const pintar = () => { res.textContent = (modo === "x" ? "× " : "÷ ") + valor; };
+  inp.addEventListener("input", () => { const v = parseInt(inp.value, 10); if (v >= 1) { valor = Math.min(99, v); pintar(); } });
+  inp.addEventListener("blur", () => { valor = leer(); inp.value = valor; pintar(); });
   overlay.addEventListener("click", (e) => {
-    if (e.target === overlay || e.target.dataset.act === "cancel") { overlay.remove(); return; }
-    if (e.target.dataset.act === "confirmar") {
-      const total = Math.max(2, Math.min(50, parseInt(document.getElementById("lev-multiplicar-total").value, 10) || 2));
+    const t = e.target;
+    if (t === overlay || t.dataset.act === "cancel") { overlay.remove(); return; }
+    if (t.dataset.modo) {
+      modo = t.dataset.modo;
+      overlay.querySelectorAll("[data-modo]").forEach(b => b.classList.toggle("lev-chip-active", b === t));
+      pintar();
+      return;
+    }
+    if (t.dataset.paso) {
+      valor = Math.max(2, Math.min(99, leer() + parseInt(t.dataset.paso, 10)));
+      inp.value = valor; pintar();
+      return;
+    }
+    if (t.dataset.act === "aplicar") {
+      valor = leer();
       pushUndo();
-      const copiasCreadas = total - 1;
-      for (let i = 2; i <= total; i++) {
-        const nivelCopia = nivel ? `${nivel} (copia ${i})` : `(copia ${i})`;
-        filas.forEach(original => {
-          const clon = Object.assign({}, original, {
-            _id: ROW_SEQ++,
-            B: nivelCopia,
-            fotos: [],
-          });
-          ROWS.push(clon);
-        });
-      }
+      filas.forEach(r => {
+        const c = Number(r[campo]) || 1;
+        r[campo] = modo === "x" ? c * valor : Math.max(1, Math.round(c / valor));
+      });
       marcarCambio();
       overlay.remove();
-      renderLevantamiento();
-      mostrarToast(`Se crearon ${copiasCreadas} copia(s) — entrá a cada una a poner el nombre real del nivel.`);
+      refrescarTrasCambioZona();
+      mostrarToast(`Cantidades ${modo === "x" ? "×" : "÷"} ${valor} en ${filas.length} fila(s). Podés deshacer.`);
     }
   });
 }
 
-function claveNotaZona(zonaRaw, nivel) { return (zonaRaw || "(sin zona)") + "‖" + (nivel || ""); }
 function abrirModalNotaZona(zonaRaw, nivel) {
   const clave = claveNotaZona(zonaRaw, nivel);
   const notaActual = NOTAS_ZONA[clave] || "";
@@ -1068,7 +1133,6 @@ function abrirModalNotaZona(zonaRaw, nivel) {
   overlay.innerHTML = `
     <div class="modal-box">
       <p style="font-weight:600;margin:0 0 12px;">Nota de zona</p>
-      <p class="hint" style="margin:0 0 10px;">Se muestra junto al título de esta zona, en la app y en el PDF del informe.</p>
       <textarea id="lev-nota-zona-input" class="lev-textarea" rows="3" placeholder="Ej. Tiene estructura de cielo instalada">${escapeHtml(notaActual)}</textarea>
       <div class="modal-actions">
         <button class="secondary" data-act="cancel">Cancelar</button>
@@ -1083,10 +1147,47 @@ function abrirModalNotaZona(zonaRaw, nivel) {
       if (texto) NOTAS_ZONA[clave] = texto; else delete NOTAS_ZONA[clave];
       marcarCambio();
       overlay.remove();
-      renderLevantamiento();
+      refrescarTrasCambioZona();
       mostrarToast(texto ? "Nota de zona guardada." : "Nota de zona quitada.");
     }
   });
+}
+
+// Encabezado compacto de zona: «Zona Nivel ✎» (toque = renombrar), botones
+// Duplicar / Multiplicar / Nota, y la nota en caja ámbar solo si existe.
+function zonaEncabezadoHTML(tipo, g, conAcciones) {
+  const attrs = `data-zona-raw="${escapeHtml(g.zonaRaw)}" data-nivel="${escapeHtml(g.nivel)}" data-lev-tipo="${tipo}"`;
+  const nota = NOTAS_ZONA[claveNotaZona(g.zonaRaw, g.nivel)];
+  return `
+    <div class="lev-zona-head">
+      <button type="button" class="lev-zona-titulo" data-lev-zona-renombrar="1" ${attrs} aria-label="Renombrar zona y nivel">
+        <span class="lev-zona-titulo-txt">${escapeHtml(tituloZona(g.zonaRaw, g.nivel))}</span><svg class="icon"><use href="#i-edit"/></svg>
+      </button>
+      <span class="lev-hint-sticky">(${g.items.length})</span>
+    </div>
+    ${conAcciones ? `<div class="lev-zona-acciones">
+      <button type="button" class="lev-zona-btn" data-lev-zona-duplicar="1" ${attrs}><svg class="icon"><use href="#i-copy"/></svg>Duplicar</button>
+      <button type="button" class="lev-zona-btn" data-lev-zona-multiplicar="1" ${attrs}><svg class="icon"><use href="#i-plus"/></svg>Multiplicar</button>
+      ${nota ? "" : `<button type="button" class="lev-zona-btn" data-lev-zona-nota="1" ${attrs}><svg class="icon"><use href="#i-clipboard"/></svg>Nota</button>`}
+    </div>` : ""}
+    ${nota ? `<button type="button" class="lev-zona-nota-box" data-lev-zona-nota="1" ${attrs}><strong>Nota de zona</strong><span>${escapeHtml(nota)}</span></button>` : ""}`;
+}
+
+function adjuntarAccionesZona(root) {
+  if (!root) return;
+  const tipoDe = (b) => b.getAttribute("data-lev-tipo") === "junta" ? "junta" : "pen";
+  const z = (b) => [b.getAttribute("data-zona-raw"), b.getAttribute("data-nivel")];
+  root.querySelectorAll("[data-lev-zona-renombrar]").forEach(b => b.addEventListener("click", () => abrirModalRenombrarZona(tipoDe(b), ...z(b))));
+  root.querySelectorAll("[data-lev-zona-duplicar]").forEach(b => b.addEventListener("click", () => duplicarZona(tipoDe(b), ...z(b))));
+  root.querySelectorAll("[data-lev-zona-multiplicar]").forEach(b => b.addEventListener("click", () => abrirModalMultiplicarZona(tipoDe(b), ...z(b))));
+  root.querySelectorAll("[data-lev-zona-nota]").forEach(b => b.addEventListener("click", () => abrirModalNotaZona(...z(b))));
+}
+
+// Borrar una línea: si tiene fotos pide confirmación (son evidencia real).
+function borrarConConfirmacionSiHayFotos(fila, hacerBorrado) {
+  const nf = fila && (fila.fotos ? fila.fotos.length : (fila.foto ? 1 : 0));
+  if (nf > 0) pedirConfirmacion(`Esta línea tiene ${nf} foto(s). ¿Eliminarla?`, hacerBorrado);
+  else hacerBorrado();
 }
 
 function describirItemLevantamiento(r) {
@@ -1102,15 +1203,7 @@ function renderListaAgrupadaHTML(grupos) {
   if (grupos.length === 0) return `<div class="hint" style="margin:0;">Todavía no agregaste nada.</div>`;
   return grupos.map(g => `
     <div class="lev-zona-group">
-      <div class="lev-zona-title">
-        <span>${escapeHtml(g.zona)} <span class="lev-hint-sticky">(${g.items.length})</span></span>
-        <span class="lev-zona-title-acciones">
-          <button type="button" class="lev-zona-accion-btn" data-lev-zona-renombrar="1" data-zona-raw="${escapeHtml(g.zonaRaw)}" data-nivel="${escapeHtml(g.nivel)}" title="Renombrar esta zona/nivel (afecta las ${g.items.length} filas)" aria-label="Renombrar zona"><svg class="icon"><use href="#i-edit"/></svg></button>
-          <button type="button" class="lev-zona-accion-btn" data-lev-zona-multiplicar="1" data-zona-raw="${escapeHtml(g.zonaRaw)}" data-nivel="${escapeHtml(g.nivel)}" title="Multiplicar esta zona/nivel (duplica las ${g.items.length} filas)" aria-label="Multiplicar zona"><svg class="icon"><use href="#i-copy"/></svg></button>
-          <button type="button" class="lev-zona-accion-btn ${NOTAS_ZONA[claveNotaZona(g.zonaRaw, g.nivel)] ? "lev-zona-accion-btn-activo" : ""}" data-lev-zona-nota="1" data-zona-raw="${escapeHtml(g.zonaRaw)}" data-nivel="${escapeHtml(g.nivel)}" title="${NOTAS_ZONA[claveNotaZona(g.zonaRaw, g.nivel)] ? "Editar nota de zona" : "Agregar nota de zona"}" aria-label="Nota de zona"><svg class="icon"><use href="#i-clipboard"/></svg></button>
-        </span>
-      </div>
-      ${NOTAS_ZONA[claveNotaZona(g.zonaRaw, g.nivel)] ? `<p class="lev-zona-nota-texto">${escapeHtml(NOTAS_ZONA[claveNotaZona(g.zonaRaw, g.nivel)])}</p>` : ""}
+      ${zonaEncabezadoHTML("pen", g, true)}
       <div class="lev-recent-list">
         ${g.items.map(r => `
         <div class="lev-recent-item">
@@ -1510,7 +1603,10 @@ function attachLevantamientoEvents() {
     btn.addEventListener("click", () => {
       const id = Number(btn.dataset.levDelBtn);
       const idx = ROWS.findIndex(r => r._id === id);
-      if (idx !== -1) { pushUndo(); ROWS.splice(idx, 1); renderLevantamiento(); marcarCambio(); }
+      if (idx !== -1) borrarConConfirmacionSiHayFotos(ROWS[idx], () => {
+        const i2 = ROWS.findIndex(r => r._id === id);
+        if (i2 !== -1) { pushUndo(); ROWS.splice(i2, 1); renderLevantamiento(); marcarCambio(); }
+      });
     });
   });
 
@@ -1535,21 +1631,7 @@ function attachLevantamientoEvents() {
     });
   });
 
-  cont.querySelectorAll("[data-lev-zona-renombrar]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      abrirModalRenombrarZona(btn.getAttribute("data-zona-raw"), btn.getAttribute("data-nivel"));
-    });
-  });
-  cont.querySelectorAll("[data-lev-zona-multiplicar]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      abrirModalMultiplicarZona(btn.getAttribute("data-zona-raw"), btn.getAttribute("data-nivel"));
-    });
-  });
-  cont.querySelectorAll("[data-lev-zona-nota]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      abrirModalNotaZona(btn.getAttribute("data-zona-raw"), btn.getAttribute("data-nivel"));
-    });
-  });
+  adjuntarAccionesZona(cont);
 }
 
 function editarItemLevantamiento(id, abrirFullscreen) {
@@ -1770,8 +1852,114 @@ const PROD_LABEL = {
   "Putty Pad CP 617": "Putty Pad CP 617",
 };
 
+function esVistaMovil() {
+  try { return !!(window.matchMedia && window.matchMedia("(max-width: 640px)").matches); } catch (e) { return false; }
+}
+
+function zonaFilaMovilHTML(tipo, g) {
+  const attrs = `data-zona-raw="${escapeHtml(g.zonaRaw)}" data-nivel="${escapeHtml(g.nivel)}" data-lev-tipo="${tipo}"`;
+  const nota = NOTAS_ZONA[claveNotaZona(g.zonaRaw, g.nivel)];
+  return `<tbody class="lev-mt-zona"><tr><td colspan="5">
+    <button type="button" class="lev-zona-titulo" data-lev-zona-renombrar="1" ${attrs} aria-label="Renombrar zona y nivel"><span class="lev-zona-titulo-txt">${escapeHtml(tituloZona(g.zonaRaw, g.nivel))}</span><svg class="icon"><use href="#i-edit"/></svg></button>
+    ${nota ? `<button type="button" class="lev-zona-nota-box" data-lev-zona-nota="1" ${attrs}><strong>Nota de zona</strong><span>${escapeHtml(nota)}</span></button>` : ""}
+  </td></tr></tbody>`;
+}
+
+function camaraYPinMovilHTML(r, tipo) {
+  const pin = buscarPinDeFila(r._id, tipo === "junta" ? "junta" : "penetrante")
+    ? `<button class="icon-btn" data-lev-ver-pin="${r._id}" data-lev-ver-pin-tipo="${tipo === "junta" ? "junta" : "penetrante"}" aria-label="Ver ubicación en plano"><svg class="icon"><use href="#i-pin"/></svg></button>` : "";
+  const nf = r.fotos ? r.fotos.length : 0;
+  const cam = nf
+    ? `<button class="icon-btn" data-lev-ver-fotos="${r._id}" ${tipo === "junta" ? 'data-lev-ver-fotos-tipo="junta"' : ""} aria-label="Ver fotos"><svg class="icon"><use href="#i-camera"/></svg><span class="lev-foto-count">${nf}</span></button>` : "";
+  return pin + cam;
+}
+
+function renderTablaMovilPenetrantesHTML(grupos) {
+  let alt = 0;
+  const cuerpo = grupos.map(g => zonaFilaMovilHTML("pen", g) + g.items.map(r => {
+    const c = computeRow(r, CONFIG);
+    const esAisl = n(r.E) > 0;
+    const esRedondoLibre = levUsaDiametroLibre(r.L) && r.F !== "";
+    let dim = "";
+    if (r.D !== "") dim = " " + formatFraccionPulgadas(r.D) + (esAisl ? ` (+${formatFraccionPulgadas(r.E)} aisl)` : "");
+    else if (esRedondoLibre) dim = ` ⌀${formatFraccionPulgadas(n(r.F) / 2.54)}`;
+    else if (r.F !== "") dim = ` ${r.F}×${r.G}${r.H !== "" ? "×" + r.H : ""} cm` + (esAisl ? ` (+${formatFraccionPulgadas(r.E)} aisl)` : "");
+    const opcs = PRODUCTOS_POR_TIPO[r.L] || [];
+    const prod = opcs.length <= 1
+      ? `<span class="lev-mt-prod-txt">${escapeHtml(PROD_LABEL[r.P] || r.P) || "—"}</span>`
+      : `<select class="cell-input lev-prod-select lev-mt-prod" data-lev-prod-id="${r._id}">${opcs.map(p => `<option value="${escapeHtml(p)}" ${p === r.P ? "selected" : ""}>${escapeHtml(PROD_LABEL[p] || p)}</option>`).join("")}</select>`;
+    const kv = [];
+    if (r.O && r.O !== "-") kv.push(`<span class="lev-mt-fr"><b>F Rating</b> ${escapeHtml(r.O)}</span>`);
+    if (!levOcultaAnular(r.L)) kv.push(`<span><b>Anular</b> ${formatFraccionPulgadas(r.I)}</span>`);
+    if (levUsaOcupacion(r.L) && r.J) kv.push(`<span><b>Ocup.</b> ${Math.round(n(r.J) * 100)}%</span>`);
+    const esp = formatEspesorPenetrante(r.P, c.V);
+    if (esp !== "—") kv.push(`<span><b>Espesor</b> ${esp}</span>`);
+    if (r.P === MAT_CINTA_CON || r.P === MAT_CINTA_SIN) kv.push(`<span><b>Vueltas</b> ${vueltasCintaPenetrante(r)}</span>`);
+    const esCaja = r.L === "Caja Electromecánica UL";
+    const extraCaja = esCaja ? `${r.PPINST === "Dentro" ? "Por dentro" : "Por fuera"}${r.PPPLAST ? " · plástica" : ""}` : "";
+    const res = detalleCalculoTexto(c);
+    const gris = [extraCaja, res !== "—" ? res : ""].filter(Boolean).join(" · ");
+    const ulOk = c.Qtext && c.Qtext !== "-" && !["Sin sistema", "Cambiar material a Pasta FS ONE MAX", "Cambiar material a pasta FS ONE MAX"].includes(c.Qtext);
+    const ul = ulOk ? `<span class="lev-mt-ul-lbl">Sistema UL</span><a href="${escapeHtml(c.Qlink || "")}" target="_blank" rel="noopener" class="badge badge-ok" title="${escapeHtml(c.Qtext)}">${escapeHtml(c.Qtext.split(" ")[0])}</a>` : "";
+    return `<tbody class="lev-mt-bloque ${(alt++ % 2) ? "b2" : "b1"}">
+      <tr class="lev-mt-main">
+        <td class="lev-mt-cant" rowspan="2">${r.C}</td>
+        <td class="lev-mt-pen">${escapeHtml(TIPO_LABEL_CORTO[r.L] || r.L)}${escapeHtml(dim)}</td>
+        <td class="lev-mt-bar">${escapeHtml(r.M)}<small>${escapeHtml(r.N)}${r.MEM ? " · membrana" : ""}</small></td>
+        <td class="lev-mt-prodtd">${prod}</td>
+        <td class="lev-mt-acc"><button class="icon-btn" data-lev-edit-btn="${r._id}" aria-label="Editar"><svg class="icon"><use href="#i-edit"/></svg></button><button class="icon-btn icon-danger" data-lev-del-btn="${r._id}" aria-label="Eliminar"><svg class="icon"><use href="#i-close"/></svg></button></td>
+      </tr>
+      <tr class="lev-mt-det"><td colspan="4"><div class="lev-mt-grid">
+        <div class="lev-mt-izq">
+          ${kv.length ? `<div class="lev-mt-kv">${kv.join("")}</div>` : ""}
+          ${gris ? `<div class="lev-mt-gris">${escapeHtml(gris)}</div>` : ""}
+          ${r.R ? `<div class="lev-mt-nota">${escapeHtml(r.R)}</div>` : ""}
+        </div>
+        <div class="lev-mt-der">${ul}<span class="lev-mt-iconos">${camaraYPinMovilHTML(r, "pen")}</span></div>
+      </div></td></tr>
+    </tbody>`;
+  }).join("")).join("");
+  return `<div class="lev-mt-wrap"><table class="lev-mt">
+    <colgroup><col style="width:9%"><col style="width:25%"><col style="width:20%"><col style="width:34%"><col style="width:12%"></colgroup>
+    <thead><tr><th>Cant.</th><th>Penetrante</th><th>Barrera</th><th>Producto</th><th></th></tr></thead>
+    ${cuerpo}</table></div>`;
+}
+
+function renderTablaMovilJuntasHTML(grupos) {
+  let alt = 0;
+  const cuerpo = grupos.map(g => zonaFilaMovilHTML("junta", g) + g.items.map(r => {
+    const f = computeSingleJuntaRow(r);
+    const lanaUnid = r.calcularLana ? lanaUnidadesSinRedondear(f) * r.cantidad : 0;
+    const kv = [`<span><b>Long.</b> ${r.longitud} cm</span>`, `<span><b>Ancho</b> ${r.ancho} cm</span>`];
+    if (f.espesorProductoIn !== null) kv.push(`<span><b>Espesor</b> ${formatFraccionPulgadas(f.espesorProductoIn)}</span>`);
+    const gris = [`Sellador: ${roundup(f.volumenSellador * r.cantidad, 0)} cm³`, lanaUnid > 0 ? `Lana: ${lanaUnid.toFixed(2)} unid.` : ""].filter(Boolean).join(" · ");
+    return `<tbody class="lev-mt-bloque ${(alt++ % 2) ? "b2" : "b1"}">
+      <tr class="lev-mt-main">
+        <td class="lev-mt-cant" rowspan="2">${r.cantidad}</td>
+        <td class="lev-mt-pen">${escapeHtml(juntaLabelCorta(r, f.superiorInferior))}</td>
+        <td class="lev-mt-bar">${escapeHtml(barrerasLabelCorto(r.barreras))}</td>
+        <td class="lev-mt-prodtd"><span class="lev-mt-prod-txt">${escapeHtml(r.producto)}</span></td>
+        <td class="lev-mt-acc"><button class="icon-btn" data-levj-tab-edit="${r._id}" aria-label="Editar"><svg class="icon"><use href="#i-edit"/></svg></button><button class="icon-btn icon-danger" data-levj-tab-del="${r._id}" aria-label="Eliminar"><svg class="icon"><use href="#i-close"/></svg></button></td>
+      </tr>
+      <tr class="lev-mt-det"><td colspan="4"><div class="lev-mt-grid">
+        <div class="lev-mt-izq">
+          <div class="lev-mt-kv">${kv.join("")}</div>
+          <div class="lev-mt-gris">${escapeHtml(gris)}</div>
+          ${r.nota ? `<div class="lev-mt-nota">${escapeHtml(r.nota)}</div>` : ""}
+        </div>
+        <div class="lev-mt-der"><span class="lev-mt-iconos">${camaraYPinMovilHTML(r, "junta")}</span></div>
+      </div></td></tr>
+    </tbody>`;
+  }).join("")).join("");
+  return `<div class="lev-mt-wrap"><table class="lev-mt">
+    <colgroup><col style="width:9%"><col style="width:25%"><col style="width:20%"><col style="width:34%"><col style="width:12%"></colgroup>
+    <thead><tr><th>Cant.</th><th>Junta</th><th>Barreras</th><th>Producto</th><th></th></tr></thead>
+    ${cuerpo}</table></div>`;
+}
+
 function renderTablaAgrupadaHTML(grupos) {
   if (grupos.length === 0) return `<div class="hint" style="margin:16px 0 0;">Todavía no hay penetrantes registrados. Usá "Levantamiento" arriba.</div>`;
+  if (esVistaMovil()) return renderTablaMovilPenetrantesHTML(grupos);
 
   const filas = [];
   grupos.forEach(g => {
@@ -1882,8 +2070,73 @@ function agruparPenetrantesPorCaracteristicas() {
   return grupos;
 }
 
+function renderTablaMovilResumidaPenetrantesHTML(grupos) {
+  let alt = 0;
+  const cuerpo = grupos.map(({ rep: r, cantidad }) => {
+    const c = computeRow(Object.assign({}, r, { C: cantidad }), CONFIG);
+    const esAisl = n(r.E) > 0;
+    const esRedondoLibre = levUsaDiametroLibre(r.L) && r.F !== "";
+    let dim = "";
+    if (r.D !== "") dim = " " + formatFraccionPulgadas(r.D) + (esAisl ? ` (+${formatFraccionPulgadas(r.E)} aisl)` : "");
+    else if (esRedondoLibre) dim = ` ⌀${formatFraccionPulgadas(n(r.F) / 2.54)}`;
+    else if (r.F !== "") dim = ` ${r.F}×${r.G}${r.H !== "" ? "×" + r.H : ""} cm` + (esAisl ? ` (+${formatFraccionPulgadas(r.E)} aisl)` : "");
+    const kv = [];
+    if (!levOcultaAnular(r.L)) kv.push(`<span><b>Anular</b> ${formatFraccionPulgadas(r.I)}</span>`);
+    const esp = formatEspesorPenetrante(r.P, c.V);
+    if (esp !== "—") kv.push(`<span><b>Espesor</b> ${esp}</span>`);
+    if (r.P === MAT_CINTA_CON || r.P === MAT_CINTA_SIN) kv.push(`<span><b>Vueltas</b> ${vueltasCintaPenetrante(r)}</span>`);
+    const res = detalleCalculoTexto(c);
+    const ulOk = c.Qtext && c.Qtext !== "-" && !["Sin sistema", "Cambiar material a Pasta FS ONE MAX", "Cambiar material a pasta FS ONE MAX"].includes(c.Qtext);
+    const ul = ulOk ? `<span class="lev-mt-ul-lbl">Sistema UL</span><a href="${escapeHtml(c.Qlink || "")}" target="_blank" rel="noopener" class="badge badge-ok" title="${escapeHtml(c.Qtext)}">${escapeHtml(c.Qtext.split(" ")[0])}</a>` : "";
+    return `<tbody class="lev-mt-bloque ${(alt++ % 2) ? "b2" : "b1"}">
+      <tr class="lev-mt-main">
+        <td class="lev-mt-cant" rowspan="2">${cantidad}</td>
+        <td class="lev-mt-pen">${escapeHtml(TIPO_LABEL_CORTO[r.L] || r.L)}${escapeHtml(dim)}</td>
+        <td class="lev-mt-bar">${escapeHtml(r.M)}<small>${escapeHtml(r.N)}${r.MEM ? " · membrana" : ""}</small></td>
+        <td class="lev-mt-prodtd"><span class="lev-mt-prod-txt">${escapeHtml(PROD_LABEL[r.P] || r.P) || "—"}</span></td>
+      </tr>
+      <tr class="lev-mt-det"><td colspan="3"><div class="lev-mt-grid">
+        <div class="lev-mt-izq">
+          ${kv.length ? `<div class="lev-mt-kv">${kv.join("")}</div>` : ""}
+          ${res !== "—" ? `<div class="lev-mt-gris">${escapeHtml(res)}</div>` : ""}
+        </div>
+        <div class="lev-mt-der">${ul}</div>
+      </div></td></tr>
+    </tbody>`;
+  }).join("");
+  return `<div class="lev-mt-wrap"><table class="lev-mt lev-mt-res">
+    <colgroup><col style="width:11%"><col style="width:29%"><col style="width:22%"><col style="width:38%"></colgroup>
+    <thead><tr><th>Cant. total</th><th>Penetrante</th><th>Barrera</th><th>Producto</th></tr></thead>
+    ${cuerpo}</table></div>`;
+}
+
+function renderTablaMovilResumidaJuntasHTML(grupos) {
+  let alt = 0;
+  const cuerpo = grupos.map(({ rep: r, longitudTotal }) => {
+    const f = computeJuntaRow(Object.assign({}, r, { longitud: longitudTotal, cantidad: 1 }));
+    const lanaUnid = r.calcularLana ? lanaUnidadesSinRedondear(f) : 0;
+    const kv = [`<span><b>Ancho</b> ${r.ancho} cm</span>`];
+    if (f.espesorProductoIn !== null) kv.push(`<span><b>Espesor</b> ${formatFraccionPulgadas(f.espesorProductoIn)}</span>`);
+    const gris = [`Sellador: ${roundup(f.volumenSellador, 0)} cm³`, r.calcularLana ? (lanaUnid > 0 ? `Lana: ${lanaUnid.toFixed(2)} unid.` : "") : ""].filter(Boolean).join(" · ");
+    return `<tbody class="lev-mt-bloque ${(alt++ % 2) ? "b2" : "b1"}">
+      <tr class="lev-mt-main">
+        <td class="lev-mt-cant" rowspan="2">${Math.round(longitudTotal)}<small>cm</small></td>
+        <td class="lev-mt-pen">${escapeHtml(juntaLabelCorta(r, f.superiorInferior))}</td>
+        <td class="lev-mt-bar">${escapeHtml(barrerasLabelCorto(r.barreras))}</td>
+        <td class="lev-mt-prodtd"><span class="lev-mt-prod-txt">${escapeHtml(r.producto)}</span></td>
+      </tr>
+      <tr class="lev-mt-det"><td colspan="3"><div class="lev-mt-kv">${kv.join("")}</div><div class="lev-mt-gris">${escapeHtml(gris)}</div></td></tr>
+    </tbody>`;
+  }).join("");
+  return `<div class="lev-mt-wrap"><table class="lev-mt lev-mt-res">
+    <colgroup><col style="width:12%"><col style="width:28%"><col style="width:22%"><col style="width:38%"></colgroup>
+    <thead><tr><th>Long. total</th><th>Junta</th><th>Barreras</th><th>Producto</th></tr></thead>
+    ${cuerpo}</table></div>`;
+}
+
 function renderTablaResumidaPenetrantesHTML(grupos) {
   if (grupos.length === 0) return `<div class="hint" style="margin:16px 0 0;">Todavía no hay penetrantes registrados. Usá "Levantamiento" arriba.</div>`;
+  if (esVistaMovil()) return renderTablaMovilResumidaPenetrantesHTML(grupos);
 
   return `
     <div class="table-scroll">
@@ -1963,7 +2216,10 @@ function renderLevantamientoTab() {
     btn.addEventListener("click", () => {
       const id = Number(btn.dataset.levDelBtn);
       const idx = ROWS.findIndex(r => r._id === id);
-      if (idx !== -1) { pushUndo(); ROWS.splice(idx, 1); renderLevantamientoTab(); marcarCambio(); }
+      if (idx !== -1) borrarConConfirmacionSiHayFotos(ROWS[idx], () => {
+        const i2 = ROWS.findIndex(r => r._id === id);
+        if (i2 !== -1) { pushUndo(); ROWS.splice(i2, 1); renderLevantamientoTab(); marcarCambio(); }
+      });
     });
   });
   listaBox.querySelectorAll("[data-lev-edit-btn]").forEach(btn => {
@@ -1987,6 +2243,7 @@ function renderLevantamientoTab() {
     });
   });
 
+  adjuntarAccionesZona(listaBox);
   listaBox.querySelectorAll(".lev-prod-select").forEach(sel => {
     sel.addEventListener("change", () => {
       const id = Number(sel.dataset.levProdId);
@@ -2017,6 +2274,7 @@ function lanaUnidadesSinRedondear(f) {
 
 function renderTablaJuntasHTML(grupos) {
   if (grupos.length === 0) return `<div class="hint" style="margin:16px 0 0;">Todavía no hay juntas registradas. Usá "Levantamiento Juntas" arriba.</div>`;
+  if (esVistaMovil()) return renderTablaMovilJuntasHTML(grupos);
 
   const filas = [];
   grupos.forEach(g => {
@@ -2078,6 +2336,7 @@ function agruparJuntasPorCaracteristicas() {
 
 function renderTablaResumidaJuntasHTML(grupos) {
   if (grupos.length === 0) return `<div class="hint" style="margin:16px 0 0;">Todavía no hay juntas registradas. Usá "Levantamiento Juntas" arriba.</div>`;
+  if (esVistaMovil()) return renderTablaMovilResumidaJuntasHTML(grupos);
 
   return `
     <div class="table-scroll">
@@ -2132,10 +2391,12 @@ function renderLevantamientoTabJuntas() {
   listaBox.querySelectorAll("[data-levj-tab-del]").forEach(btn => {
     btn.addEventListener("click", () => {
       const id = Number(btn.dataset.levjTabDel);
-      pushUndo();
-      ROWS_J = ROWS_J.filter(r => r._id !== id);
-      renderLevantamientoTabJuntas();
-      marcarCambio();
+      borrarConConfirmacionSiHayFotos(ROWS_J.find(r => r._id === id), () => {
+        pushUndo();
+        ROWS_J = ROWS_J.filter(r => r._id !== id);
+        renderLevantamientoTabJuntas();
+        marcarCambio();
+      });
     });
   });
   listaBox.querySelectorAll("[data-lev-ver-fotos]").forEach(btn => {
@@ -2150,6 +2411,7 @@ function renderLevantamientoTabJuntas() {
       abrirVisorPlanosEnPin(id, "junta");
     });
   });
+  adjuntarAccionesZona(listaBox);
   listaBox.querySelectorAll("[data-levj-tab-edit]").forEach(btn => {
     btn.addEventListener("click", () => {
       abrirLevantamientoJuntas();
@@ -2180,6 +2442,13 @@ function switchTab(tab) {
   if (tab === "calculadora") renderTable();
   if (tab === "levantamiento-tab") renderLevantamientoTab();
 }
+
+try {
+  const mqMovil = window.matchMedia("(max-width: 640px)");
+  const alCambiarAncho = () => { if (ACTIVE_TAB === "levantamiento-tab") renderLevantamientoTab(); };
+  if (mqMovil.addEventListener) mqMovil.addEventListener("change", alCambiarAncho);
+  else if (mqMovil.addListener) mqMovil.addListener(alCambiarAncho);
+} catch (e) {}
 
 window.levOcultaAnular = levOcultaAnular;
 window.levUsaDiametroLibre = levUsaDiametroLibre;
