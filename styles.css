@@ -1412,3 +1412,8 @@ button.primary:not(:disabled):active, button.secondary:not(:disabled):active, bu
 .lev-wt-acc .icon-btn { padding: 5px 0; min-width: 0; width: 26px; height: 30px; margin: 0; vertical-align: middle; }
 .lev-wt-acc [data-lev-ver-fotos] { width: auto; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; }
 .lev-wt-gap { display: inline-block; width: 14px; }
+
+/* Encabezados de tabla ancha: respiro en pantallas medianas */
+@media (min-width: 900px) and (max-width: 1100px) {
+  .lev-wt thead th { padding: 9px 4px; font-size: 10px; letter-spacing: 0; }
+}
