@@ -142,6 +142,8 @@ const MEMORIA_NOTA_CINTA = "La longitud de cinta intumescente (y de collar metá
 // computeRow para armar U (área de apertura) — misma lógica exacta, para que
 // la Memoria de Cálculo muestre el desglose correcto según el tipo real.
 function clasificarSubcasoU(r0) {
+  if (r0.L === TIPO_VIGA_CONCRETO) return "viga_concreto"; // sección propia "Viga Concreto" (mismas cuentas que un ducto rectangular sin aislamiento)
+  if (r0.L === TIPO_VIGA_TENSOR) return "viga_tensor";     // sección propia "Viga Tensor Redondo" (mismas cuentas que una tubería metal sin aislar)
   const r = (window.tipoBase && window.tipoBase(r0.L) !== r0.L) ? Object.assign({}, r0, { L: window.tipoBase(r0.L) }) : r0;
   if (isBlank(r.F) && eq(r.L, TIPO_VACIO)) return "vacio_redondo";
   if (isBlank(r.F)) return "tuberia_cable";
@@ -273,6 +275,37 @@ const MEMORIA_SUBCASOS_U = {
       { key: "DIM.B", header: "DIM.B (cm)", get: r => fmtComa(r.G, 0) },
       { key: "A_NUL", header: "A_NUL (in)", get: r => formatFraccionPulgadas(n(r.I) === 0 ? 0.5 : n(r.I)), getEjemplo: r => r.ANULAR_CM !== "-" ? fmtComa(r.ANULAR_CM, 2) : "-" },
       { key: "P_VIGA", header: "P_VIGA (cm)", get: r => r.P_VIGA !== "-" ? fmtComa(r.P_VIGA, 1) : "-" },
+    ],
+  },
+  viga_concreto: {
+    titulo: "Viga Concreto",
+    formulas: [
+      { resultadoSim: [mvs("AVIGA")], tokens: [mvs("DIMA"), mop("×"), mvs("DIMB")], vars: [SIM.DIMA, SIM.DIMB] },
+      { resultadoSim: [mvs("APAS")], tokens: [mop("("), mvs("DIMA"), mop("+"), mc("2"), mop("×"), mvs("ANUL"), mop(")"), mop("×"), mop("("), mvs("DIMB"), mop("+"), mc("2"), mop("×"), mvs("ANUL"), mop(")")], vars: [SIM.ANUL] },
+      { resultadoSim: [mvs("ASELLO")], tokens: [mvs("APAS"), mop("-"), mvs("AVIGA")], vars: [] },
+    ],
+    columnas: [
+      { key: "DIM.A", header: "DIM.A (cm)", get: r => fmtComa(r.F, 0) },
+      { key: "DIM.B", header: "DIM.B (cm)", get: r => fmtComa(r.G, 0) },
+      { key: "A_NUL", header: "A_NUL (in)", get: r => formatFraccionPulgadas(n(r.I) === 0 ? 0.5 : n(r.I)), getEjemplo: r => r.ANULAR_CM !== "-" ? fmtComa(r.ANULAR_CM, 2) : "-" },
+      { key: "A_VIGA", header: "A_VIGA (cm2)", get: r => r.A_VIGA !== "-" ? fmtComa(r.A_VIGA, 1) : "-" },
+      { key: "A_PAS", header: "A_PAS (cm2)", get: r => r.A_PAS !== "-" ? fmtComa(r.A_PAS, 1) : "-" },
+    ],
+  },
+  viga_tensor: {
+    titulo: "Viga Tensor Redondo",
+    formulas: [
+      { resultadoSim: [mvs("DTOTAL")], tokens: [mvs("DIAM")], vars: [SIM.DIAM] },
+      { resultadoSim: [mvs("APEN")], tokens: [mfracPi("4"), mop("×"), mop("("), mvs("DTOTAL"), mop(")", SQ)], vars: [Object.assign({}, SIM.DTOTAL, { desc: "Diámetro del tensor (DIÁM.), convertido a cm" })] },
+      { resultadoSim: [mvs("APAS")], tokens: [mfracPi("4"), mop("×"), mop("("), mvs("DTOTAL"), mop("+"), mc("2"), mop("×"), mvs("ANUL"), mop(")", SQ)], vars: [SIM.ANUL] },
+      { resultadoSim: [mvs("ASELLO")], tokens: [mvs("APAS"), mop("-"), mvs("APEN")], vars: [] },
+    ],
+    columnas: [
+      { key: "DIÁM.", header: "DIÁM. (in)", get: r => formatFraccionPulgadas(r.D) },
+      { key: "A_NUL", header: "A_NUL (in)", get: r => formatFraccionPulgadas(n(r.I) === 0 ? 0.5 : n(r.I)), getEjemplo: r => r.ANULAR_CM !== "-" ? fmtComa(r.ANULAR_CM, 2) : "-" },
+      { key: "d_total", header: "d_total (cm)", get: r => r.D_TOTAL !== "-" ? fmtComa(r.D_TOTAL, 2) : "-" },
+      { key: "A_PEN", header: "A_PEN (cm2)", get: r => r.A_PEN !== "-" ? fmtComa(r.A_PEN, 1) : "-" },
+      { key: "A_PAS", header: "A_PAS (cm2)", get: r => r.A_PAS !== "-" ? fmtComa(r.A_PAS, 1) : "-" },
     ],
   },
   viga_tubo: {

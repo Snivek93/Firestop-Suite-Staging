@@ -264,7 +264,9 @@ function computeRow(row0, config) {
   if (U !== "-") U = U * n(C);
   out.U = U;
   out.D_TOTAL = D_TOTAL; out.A_PEN = A_PEN; out.A_PAS = A_PAS; out.A_DUCT = A_DUCT;
-  out.A_VIGA = A_VIGA; out.P_VIGA = P_VIGA; out.DA_TOTAL = DA_TOTAL; out.DB_TOTAL = DB_TOTAL; out.ANULAR_CM = ANULAR_CM;
+  // Viga Concreto: el área de la viga es A_DUCT (se calcula como ducto rectangular); solo para mostrarla en la Memoria.
+  out.A_VIGA = (LOrig === TIPO_VIGA_CONCRETO) ? A_DUCT : A_VIGA;
+  out.P_VIGA = P_VIGA; out.DA_TOTAL = DA_TOTAL; out.DB_TOTAL = DB_TOTAL; out.ANULAR_CM = ANULAR_CM;
 
   // Q: NORMATIVA
   const key = dbKey(N, LOrig, M, AP, P); // LOrig: el sistema UL se busca con el tipo original (tipoUL)
