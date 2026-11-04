@@ -1979,7 +1979,7 @@ function renderTablaMovilJuntasHTML(grupos) {
 
 function renderTablaAnchaPenetrantesHTML(grupos) {
   let alt = 0;
-  const cuerpo = grupos.map(g => zonaFilaMovilHTML("pen", g, 9) + g.items.map(r => {
+  const cuerpo = grupos.map(g => zonaFilaMovilHTML("pen", g, 10) + g.items.map(r => {
     const c = computeRow(r, CONFIG);
     const esAisl = n(r.E) > 0;
     const esRedondoLibre = levUsaDiametroLibre(r.L) && r.F !== "";
@@ -1994,7 +1994,6 @@ function renderTablaAnchaPenetrantesHTML(grupos) {
     const extra = [];
     if (r.L === "Caja Electromecánica UL") extra.push(`${r.PPINST === "Dentro" ? "Por dentro" : "Por fuera"}${r.PPPLAST ? " · plástica" : ""}`);
     if (levUsaOcupacion(r.L) && r.J) extra.push(`Ocup. ${Math.round(n(r.J) * 100)}%`);
-    if (r.P === MAT_CINTA_CON || r.P === MAT_CINTA_SIN) extra.push(`Vueltas ${vueltasCintaPenetrante(r)}`);
     const res = detalleCalculoTexto(c);
     if (res !== "—") extra.push(res);
     const ulOk = c.Qtext && c.Qtext !== "-" && !["Sin sistema", "Cambiar material a Pasta FS ONE MAX", "Cambiar material a pasta FS ONE MAX"].includes(c.Qtext);
@@ -2007,14 +2006,15 @@ function renderTablaAnchaPenetrantesHTML(grupos) {
       <td>${prod}</td>
       <td>${levOcultaAnular(r.L) ? "—" : formatFraccionPulgadas(r.I)}</td>
       <td>${esp}</td>
+      <td>${(r.P === MAT_CINTA_CON || r.P === MAT_CINTA_SIN) ? vueltasCintaPenetrante(r) : "—"}</td>
       <td>${r.O && r.O !== "-" ? escapeHtml(r.O) : "—"}</td>
       <td>${ul}</td>
       <td class="lev-wt-acc">${camaraYPinMovilHTML(r, "pen")}<button class="icon-btn" data-lev-edit-btn="${r._id}" aria-label="Editar"><svg class="icon"><use href="#i-edit"/></svg></button><span class="lev-wt-gap"></span><button class="icon-btn icon-danger" data-lev-del-btn="${r._id}" aria-label="Eliminar"><svg class="icon"><use href="#i-trash"/></svg></button></td>
     </tr></tbody>`;
   }).join("")).join("");
   return `<div class="lev-wt-wrap"><table class="lev-wt">
-    <colgroup><col style="width:6%"><col style="width:20%"><col style="width:10%"><col style="width:14%"><col style="width:6%"><col style="width:7%"><col style="width:7%"><col style="width:10%"><col style="width:20%"></colgroup>
-    <thead><tr><th class="n">Cant.</th><th>Penetrante</th><th>Barrera</th><th>Producto</th><th>Anular</th><th>Espesor</th><th>F Rating</th><th>Sistema UL</th><th></th></tr></thead>
+    <colgroup><col style="width:5%"><col style="width:19%"><col style="width:10%"><col style="width:14%"><col style="width:6%"><col style="width:7%"><col style="width:6%"><col style="width:7%"><col style="width:10%"><col style="width:16%"></colgroup>
+    <thead><tr><th class="n">Cant.</th><th>Penetrante</th><th>Barrera</th><th>Producto</th><th>Anular</th><th>Espesor</th><th>Vueltas</th><th>F Rating</th><th>Sistema UL</th><th></th></tr></thead>
     ${cuerpo}</table></div>`;
 }
 
@@ -2125,7 +2125,6 @@ function renderTablaAnchaResumidaPenetrantesHTML(grupos) {
     else if (esRedondoLibre) dim = ` ⌀${formatFraccionPulgadas(n(r.F) / 2.54)}`;
     else if (r.F !== "") dim = ` ${r.F}×${r.G}${r.H !== "" ? "×" + r.H : ""} cm` + (esAisl ? ` (+${formatFraccionPulgadas(r.E)} aisl)` : "");
     const extra = [];
-    if (r.P === MAT_CINTA_CON || r.P === MAT_CINTA_SIN) extra.push(`Vueltas ${vueltasCintaPenetrante(r)}`);
     const res = detalleCalculoTexto(c);
     if (res !== "—") extra.push(res);
     const ulOk = c.Qtext && c.Qtext !== "-" && !["Sin sistema", "Cambiar material a Pasta FS ONE MAX", "Cambiar material a pasta FS ONE MAX"].includes(c.Qtext);
@@ -2137,12 +2136,13 @@ function renderTablaAnchaResumidaPenetrantesHTML(grupos) {
       <td>${escapeHtml(PROD_LABEL[r.P] || r.P) || "—"}</td>
       <td>${levOcultaAnular(r.L) ? "—" : formatFraccionPulgadas(r.I)}</td>
       <td>${formatEspesorPenetrante(r.P, c.V)}</td>
+      <td>${(r.P === MAT_CINTA_CON || r.P === MAT_CINTA_SIN) ? vueltasCintaPenetrante(r) : "—"}</td>
       <td>${ul}</td>
     </tr></tbody>`;
   }).join("");
   return `<div class="lev-wt-wrap"><table class="lev-wt">
-    <colgroup><col style="width:8%"><col style="width:32%"><col style="width:14%"><col style="width:16%"><col style="width:8%"><col style="width:9%"><col style="width:13%"></colgroup>
-    <thead><tr><th class="n">Cant. total</th><th>Penetrante</th><th>Barrera</th><th>Producto</th><th>Anular</th><th>Espesor</th><th>Sistema UL</th></tr></thead>
+    <colgroup><col style="width:8%"><col style="width:28%"><col style="width:14%"><col style="width:15%"><col style="width:8%"><col style="width:9%"><col style="width:7%"><col style="width:11%"></colgroup>
+    <thead><tr><th class="n">Cant. total</th><th>Penetrante</th><th>Barrera</th><th>Producto</th><th>Anular</th><th>Espesor</th><th>Vueltas</th><th>Sistema UL</th></tr></thead>
     ${cuerpo}</table></div>`;
 }
 
