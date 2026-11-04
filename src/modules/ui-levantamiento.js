@@ -1167,8 +1167,9 @@ function zonaEncabezadoHTML(tipo, g, conAcciones) {
     </div>
     ${conAcciones ? `<div class="lev-zona-acciones">
       <button type="button" class="lev-zona-btn" data-lev-zona-duplicar="1" ${attrs}><svg class="icon"><use href="#i-copy"/></svg>Duplicar</button>
-      <button type="button" class="lev-zona-btn" data-lev-zona-multiplicar="1" ${attrs}><svg class="icon"><use href="#i-plus"/></svg>Multiplicar</button>
+      <button type="button" class="lev-zona-btn" data-lev-zona-multiplicar="1" ${attrs}><span class="lev-zona-btn-x" aria-hidden="true">×</span>Multiplicar</button>
       ${nota ? "" : `<button type="button" class="lev-zona-btn" data-lev-zona-nota="1" ${attrs}><svg class="icon"><use href="#i-clipboard"/></svg>Nota</button>`}
+      <button type="button" class="lev-zona-btn lev-zona-btn-peligro" data-lev-zona-eliminar="1" ${attrs}><svg class="icon"><use href="#i-trash"/></svg>Eliminar</button>
     </div>` : ""}
     ${nota ? `<button type="button" class="lev-zona-nota-box" data-lev-zona-nota="1" ${attrs}><strong>Nota de zona</strong><span>${escapeHtml(nota)}</span></button>` : ""}`;
 }
@@ -1180,14 +1181,33 @@ function adjuntarAccionesZona(root) {
   root.querySelectorAll("[data-lev-zona-renombrar]").forEach(b => b.addEventListener("click", () => abrirModalRenombrarZona(tipoDe(b), ...z(b))));
   root.querySelectorAll("[data-lev-zona-duplicar]").forEach(b => b.addEventListener("click", () => duplicarZona(tipoDe(b), ...z(b))));
   root.querySelectorAll("[data-lev-zona-multiplicar]").forEach(b => b.addEventListener("click", () => abrirModalMultiplicarZona(tipoDe(b), ...z(b))));
+  root.querySelectorAll("[data-lev-zona-eliminar]").forEach(b => b.addEventListener("click", () => eliminarZona(tipoDe(b), ...z(b))));
   root.querySelectorAll("[data-lev-zona-nota]").forEach(b => b.addEventListener("click", () => abrirModalNotaZona(...z(b))));
 }
 
-// Borrar una línea: si tiene fotos pide confirmación (son evidencia real).
+// Borrar una línea: SIEMPRE pide confirmación (con aviso si tiene fotos).
 function borrarConConfirmacionSiHayFotos(fila, hacerBorrado) {
   const nf = fila && (fila.fotos ? fila.fotos.length : (fila.foto ? 1 : 0));
-  if (nf > 0) pedirConfirmacion(`Esta línea tiene ${nf} foto(s). ¿Eliminarla?`, hacerBorrado);
-  else hacerBorrado();
+  const msg = nf > 0 ? `¿Eliminar esta línea? Tiene ${nf} foto(s) que también se borran. Podés deshacer.` : "¿Eliminar esta línea? Podés deshacer.";
+  pedirEleccion(msg, [{ label: "Cancelar", act: "cancel" }, { label: "Eliminar", act: "ok", clase: "primary" }], (act) => { if (act === "ok") hacerBorrado(); });
+}
+
+// Eliminar una zona/nivel completa (todas sus líneas), con confirmación y deshacer.
+function eliminarZona(tipo, zonaRaw, nivel) {
+  const filas = filasZona(tipo, zonaRaw, nivel);
+  if (!filas.length) return;
+  const nf = filas.reduce((acc, r) => acc + (r.fotos ? r.fotos.length : (r.foto ? 1 : 0)), 0);
+  const msg = `¿Eliminar «${tituloZona(zonaRaw, nivel)}» completa? Se borran ${filas.length} línea(s)${nf ? ` y ${nf} foto(s)` : ""}. Podés deshacer.`;
+  pedirEleccion(msg, [{ label: "Cancelar", act: "cancel" }, { label: "Eliminar", act: "ok", clase: "primary" }], (act) => {
+    if (act !== "ok") return;
+    pushUndo();
+    const ids = new Set(filas.map(r => r._id));
+    if (tipo === "junta") ROWS_J = ROWS_J.filter(r => !ids.has(r._id));
+    else ROWS = ROWS.filter(r => !ids.has(r._id));
+    marcarCambio();
+    refrescarTrasCambioZona();
+    mostrarToast(`Zona eliminada (${filas.length} línea(s)). Podés deshacer.`);
+  });
 }
 
 function describirItemLevantamiento(r) {
@@ -1889,7 +1909,7 @@ function renderTablaMovilPenetrantesHTML(grupos) {
       ? `<span class="lev-mt-prod-txt">${escapeHtml(PROD_LABEL[r.P] || r.P) || "—"}</span>`
       : `<select class="cell-input lev-prod-select lev-mt-prod" data-lev-prod-id="${r._id}">${opcs.map(p => `<option value="${escapeHtml(p)}" ${p === r.P ? "selected" : ""}>${escapeHtml(PROD_LABEL[p] || p)}</option>`).join("")}</select>`;
     const kv = [];
-    if (r.O && r.O !== "-") kv.push(`<span class="lev-mt-fr"><b>F Rating</b> ${escapeHtml(r.O)}</span>`);
+    if (r.O && r.O !== "-") kv.push(`<span><b>F Rating</b> ${escapeHtml(r.O)}</span>`);
     if (!levOcultaAnular(r.L)) kv.push(`<span><b>Anular</b> ${formatFraccionPulgadas(r.I)}</span>`);
     if (levUsaOcupacion(r.L) && r.J) kv.push(`<span><b>Ocup.</b> ${Math.round(n(r.J) * 100)}%</span>`);
     const esp = formatEspesorPenetrante(r.P, c.V);
@@ -1907,16 +1927,16 @@ function renderTablaMovilPenetrantesHTML(grupos) {
         <td class="lev-mt-pen">${escapeHtml(TIPO_LABEL_CORTO[r.L] || r.L)}${escapeHtml(dim)}</td>
         <td class="lev-mt-bar">${escapeHtml(r.M)}<small>${escapeHtml(r.N)}${r.MEM ? " · membrana" : ""}</small></td>
         <td class="lev-mt-prodtd">${prod}</td>
-        <td class="lev-mt-acc"><button class="icon-btn" data-lev-edit-btn="${r._id}" aria-label="Editar"><svg class="icon"><use href="#i-edit"/></svg></button><button class="icon-btn icon-danger" data-lev-del-btn="${r._id}" aria-label="Eliminar"><svg class="icon"><use href="#i-close"/></svg></button></td>
+        <td class="lev-mt-acc"><button class="icon-btn" data-lev-edit-btn="${r._id}" aria-label="Editar"><svg class="icon"><use href="#i-edit"/></svg></button></td>
       </tr>
-      <tr class="lev-mt-det"><td colspan="4"><div class="lev-mt-grid">
+      <tr class="lev-mt-det"><td colspan="3"><div class="lev-mt-grid">
         <div class="lev-mt-izq">
           ${kv.length ? `<div class="lev-mt-kv">${kv.join("")}</div>` : ""}
           ${gris ? `<div class="lev-mt-gris">${escapeHtml(gris)}</div>` : ""}
           ${r.R ? `<div class="lev-mt-nota">Nota: ${escapeHtml(r.R)}</div>` : ""}
         </div>
         <div class="lev-mt-der">${ul}<span class="lev-mt-iconos">${camaraYPinMovilHTML(r, "pen")}</span></div>
-      </div></td></tr>
+      </div></td><td class="lev-mt-acc lev-mt-acc-del"><button class="icon-btn icon-danger" data-lev-del-btn="${r._id}" aria-label="Eliminar"><svg class="icon"><use href="#i-trash"/></svg></button></td></tr>
     </tbody>`;
   }).join("")).join("");
   return `<div class="lev-mt-wrap"><table class="lev-mt">
@@ -1939,16 +1959,16 @@ function renderTablaMovilJuntasHTML(grupos) {
         <td class="lev-mt-pen">${escapeHtml(juntaLabelCorta(r, f.superiorInferior))}</td>
         <td class="lev-mt-bar">${escapeHtml(barrerasLabelCorto(r.barreras))}</td>
         <td class="lev-mt-prodtd"><span class="lev-mt-prod-txt">${escapeHtml(r.producto)}</span></td>
-        <td class="lev-mt-acc"><button class="icon-btn" data-levj-tab-edit="${r._id}" aria-label="Editar"><svg class="icon"><use href="#i-edit"/></svg></button><button class="icon-btn icon-danger" data-levj-tab-del="${r._id}" aria-label="Eliminar"><svg class="icon"><use href="#i-close"/></svg></button></td>
+        <td class="lev-mt-acc"><button class="icon-btn" data-levj-tab-edit="${r._id}" aria-label="Editar"><svg class="icon"><use href="#i-edit"/></svg></button></td>
       </tr>
-      <tr class="lev-mt-det"><td colspan="4"><div class="lev-mt-grid">
+      <tr class="lev-mt-det"><td colspan="3"><div class="lev-mt-grid">
         <div class="lev-mt-izq">
           <div class="lev-mt-kv">${kv.join("")}</div>
           <div class="lev-mt-gris">${escapeHtml(gris)}</div>
           ${r.nota ? `<div class="lev-mt-nota">Nota: ${escapeHtml(r.nota)}</div>` : ""}
         </div>
         <div class="lev-mt-der"><span class="lev-mt-iconos">${camaraYPinMovilHTML(r, "junta")}</span></div>
-      </div></td></tr>
+      </div></td><td class="lev-mt-acc lev-mt-acc-del"><button class="icon-btn icon-danger" data-levj-tab-del="${r._id}" aria-label="Eliminar"><svg class="icon"><use href="#i-trash"/></svg></button></td></tr>
     </tbody>`;
   }).join("")).join("");
   return `<div class="lev-mt-wrap"><table class="lev-mt">
