@@ -1395,3 +1395,20 @@ button.primary:not(:disabled):active, button.secondary:not(:disabled):active, bu
 .lev-mt-main td:not(.lev-mt-cant) { background: rgba(128,128,128,.10); }
 @media (max-width: 380px) { .lev-mt-bar small { font-size: 9px; } .lev-mt-pen { font-size: 11px; } .lev-mt-bar { font-size: 11px; } .lev-mt thead th { font-size: 9.5px; } }
 .lev-zona-btn-x { font-size: 16px; font-weight: 700; line-height: 1; width: 14px; text-align: center; }
+
+/* ===== Tabla Detallado ancha (escritorio) ===== */
+.lev-wt-wrap { width: 100%; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.lev-wt { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; color: var(--ink); }
+.lev-wt thead th { background: var(--surface-raised); font-size: 11px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; color: var(--ink); text-align: left; padding: 9px 8px; border-bottom: 2px solid var(--grey-3); white-space: nowrap; }
+.lev-wt thead th.n { text-align: center; padding: 9px 0; }
+.lev-wt td { padding: 8px; vertical-align: middle; overflow-wrap: break-word; }
+.lev-wt .lev-mt-cant { font-size: 16px; padding: 8px 0 8px 4px !important; }
+.lev-wt .lev-mt-zona td { padding: 10px 8px 6px; background: var(--surface-raised); }
+.lev-wt .pn { font-weight: 800; }
+.lev-wt small { display: block; font-size: 11px; color: var(--text-secondary); font-weight: 400; }
+.lev-wt .lev-mt-nota { font-size: 12px; }
+.lev-wt select.lev-prod-select { width: 100%; font-size: 12px !important; padding: 5px 18px 5px 6px; min-height: 32px; border: 1px solid var(--border); border-radius: 8px; background-color: var(--surface-raised); color: var(--ink); text-overflow: ellipsis; }
+.lev-wt-acc { white-space: nowrap; text-align: right; padding-right: 6px !important; }
+.lev-wt-acc .icon-btn { padding: 5px 0; min-width: 0; width: 26px; height: 30px; margin: 0; vertical-align: middle; }
+.lev-wt-acc [data-lev-ver-fotos] { width: auto; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; }
+.lev-wt-gap { display: inline-block; width: 14px; }
