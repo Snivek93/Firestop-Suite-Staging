@@ -1417,3 +1417,13 @@ button.primary:not(:disabled):active, button.secondary:not(:disabled):active, bu
 @media (min-width: 900px) and (max-width: 1100px) {
   .lev-wt thead th { padding: 9px 4px; font-size: 10px; letter-spacing: 0; }
 }
+
+/* Columna Cantidades: solo en pantallas >= 1100px; debajo, los cálculos van bajo el penetrante */
+.lev-wt .lev-wt-calc-col, .lev-wt .cg-wide { display: none; }
+.lev-wt .lev-wt-calc-col div { font-size: 12px; line-height: 1.45; color: var(--ink); white-space: nowrap; }
+.lev-wt thead th.lev-wt-calc-col { white-space: nowrap; }
+@media (min-width: 1100px) {
+  .lev-wt .lev-wt-calc-col { display: table-cell; }
+  .lev-wt .cg-wide { display: table-column-group; }
+  .lev-wt .cg-narrow, .lev-wt .lev-wt-calc-inline { display: none; }
+}
