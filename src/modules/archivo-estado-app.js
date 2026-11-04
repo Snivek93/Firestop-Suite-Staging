@@ -641,6 +641,9 @@ function cargarProyectoEnApp(data) {
   const pf = document.getElementById("proj-fecha"); if (pf) pf.value = PROJECT_INFO.fecha;
   renderTable();
   renderLevantamientoTab();
+  // Si la pestaña activa es Resultados, repintarla con los datos del proyecto recién cargado
+  // (antes quedaba mostrando los del proyecto anterior hasta cambiar de pestaña).
+  if (ACTIVE_TAB === "resumen") renderResumen();
   mostrarVistaProyecto();
 }
 
