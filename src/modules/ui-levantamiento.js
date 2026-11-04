@@ -1940,7 +1940,7 @@ function renderTablaMovilPenetrantesHTML(grupos) {
     </tbody>`;
   }).join("")).join("");
   return `<div class="lev-mt-wrap"><table class="lev-mt">
-    <colgroup><col style="width:9%"><col style="width:25%"><col style="width:20%"><col style="width:34%"><col style="width:12%"></colgroup>
+    <colgroup><col style="width:10%"><col style="width:27%"><col style="width:18%"><col style="width:33%"><col style="width:12%"></colgroup>
     <thead><tr><th>Cant.</th><th>Penetrante</th><th>Barrera</th><th>Producto</th><th></th></tr></thead>
     ${cuerpo}</table></div>`;
 }
@@ -1972,7 +1972,7 @@ function renderTablaMovilJuntasHTML(grupos) {
     </tbody>`;
   }).join("")).join("");
   return `<div class="lev-mt-wrap"><table class="lev-mt">
-    <colgroup><col style="width:9%"><col style="width:25%"><col style="width:20%"><col style="width:34%"><col style="width:12%"></colgroup>
+    <colgroup><col style="width:10%"><col style="width:27%"><col style="width:18%"><col style="width:33%"><col style="width:12%"></colgroup>
     <thead><tr><th>Cant.</th><th>Junta</th><th>Barreras</th><th>Producto</th><th></th></tr></thead>
     ${cuerpo}</table></div>`;
 }
