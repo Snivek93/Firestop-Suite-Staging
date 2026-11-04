@@ -1388,4 +1388,10 @@ button.primary:not(:disabled):active, button.secondary:not(:disabled):active, bu
 .lev-mt-res .lev-mt-cant { font-size: 15px; }
 .lev-mt-acc-del { vertical-align: bottom !important; height: 48px; padding-bottom: 6px !important; }
 .lev-zona-btn-peligro { color: var(--hilti-red); }
+.lev-mt thead th { font-size: 10.5px; font-weight: 800; letter-spacing: .2px; color: var(--ink); padding: 8px 4px; border-bottom: 2px solid var(--grey-3); white-space: nowrap; }
+.lev-mt thead th:first-child { font-size: 9.5px; letter-spacing: 0; padding: 8px 0; }
+.lev-mt-pen { font-weight: 800; overflow-wrap: break-word; word-break: normal; hyphens: none; }
+.lev-mt-bar { overflow-wrap: break-word; word-break: normal; }
+.lev-mt-main td:not(.lev-mt-cant) { background: rgba(128,128,128,.10); }
+@media (max-width: 380px) { .lev-mt-bar small { font-size: 9px; } .lev-mt-pen { font-size: 11px; } .lev-mt-bar { font-size: 11px; } .lev-mt thead th { font-size: 9.5px; } }
 .lev-zona-btn-x { font-size: 16px; font-weight: 700; line-height: 1; width: 14px; text-align: center; }
