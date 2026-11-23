@@ -190,8 +190,6 @@ let ACR_ZONA_ACTIVA = null;
 let ACR_ELEMENTO_FORM = null;
 let ACR_ELEMENTO_EDITANDO_ID = null;
 let ACR_FOTO_EDIT = null;
-let ACR_DESC_FOTO_MODAL_ID = null; // id de la foto cuyo popup de descripción está abierto
-let ACR_DESC_FOTO_ES_NUEVA = false; // true = se abrió justo tras tomar la foto (fondo pantalla completa)
 let ACR_FOTO_MODO_BORRAR = false; // true = tocar una foto la marca para borrar (no para el informe)
 let ACR_FOTOS_A_BORRAR = new Set();
 let ACR_FOTO_CONFIRMAR_BORRAR = null; // { ids: [...] } cuando se pidió confirmación
@@ -357,7 +355,6 @@ function renderAcreditacion() {
       ${ACR_VISTA === "form" ? renderFormularioHTML() : ""}
       ${enEditorFoto ? renderEditorFotoHTML() : ""}
     </div>
-    ${ACR_DESC_FOTO_MODAL_ID != null ? renderModalDescripcionFotoHTML() : ""}
     ${ACR_FOTO_CONFIRMAR_BORRAR ? renderModalConfirmarBorrarFotoHTML() : ""}
   `;
   attachEventos(overlay);
@@ -416,39 +413,6 @@ function renderHistorialHTML() {
 function todasSeleccionadas() {
   return ACR_DRAFT.fotos.length > 0 && ACR_DRAFT.fotos.every((f) => f.seleccionada);
 }
-function renderModalDescripcionFotoHTML() {
-  const foto = ACR_DRAFT.fotos.find((f) => f.id === ACR_DESC_FOTO_MODAL_ID);
-  if (!foto) return "";
-  if (ACR_DESC_FOTO_ES_NUEVA) {
-    // Foto recién tomada: la foto queda de fondo a pantalla completa (mismo
-    // tratamiento visual que el editor) con el popup de descripción encima.
-    return `
-      <div class="acr-visor-foto acr-visor-foto-fullscreen acr-desc-foto-fondo">
-        <div class="acr-editor-canvas-wrap"><img src="${foto.dataUrl}" alt="Foto" class="acr-desc-foto-fondo-img"></div>
-        <div class="acr-desc-foto-overlay acr-desc-foto-overlay-sobre-fondo">
-          <div class="acr-desc-foto-modal">
-            <div class="acr-desc-foto-header">
-              <span>Descripción de la foto</span>
-              <button type="button" class="primary" data-acr-action="desc-foto-aplicar">Aplicar</button>
-            </div>
-            <textarea id="acr-desc-foto-input" placeholder="Ej. Vista general del muro cortafuego (opcional)" rows="4">${escapeHtml(foto.descripcion)}</textarea>
-          </div>
-        </div>
-      </div>`;
-  }
-  return `
-    <div class="acr-desc-foto-overlay">
-      <div class="acr-desc-foto-modal">
-        <div class="acr-desc-foto-header">
-          <button type="button" class="secondary" data-acr-action="desc-foto-cancelar">Atrás</button>
-          <span>Descripción de la foto</span>
-          <button type="button" class="primary" data-acr-action="desc-foto-aplicar">Aplicar</button>
-        </div>
-        <textarea id="acr-desc-foto-input" placeholder="Ej. Vista general del muro cortafuego" rows="4">${escapeHtml(foto.descripcion)}</textarea>
-      </div>
-    </div>`;
-}
-
 function renderGaleriaHTML() {
   const fotos = ACR_DRAFT.fotos;
   const seleccionadas = fotos.filter((f) => f.seleccionada).length;
@@ -459,9 +423,9 @@ function renderGaleriaHTML() {
     if (f.seleccionada) numFigura++;
     const prefijoFigura = f.seleccionada ? `<strong>Figura ${numFigura}.</strong> ` : "";
     return `
-    <div class="acr-foto-item ${f.seleccionada ? "acr-foto-seleccionada" : ""} ${marcadaParaBorrar ? "acr-foto-marcada-borrar" : ""}" data-acr-drag-item data-id="${f.id}" ${modoBorrar ? "" : `draggable="true"`}>
+    <div class="acr-foto-item ${f.seleccionada ? "acr-foto-seleccionada" : ""} ${marcadaParaBorrar ? "acr-foto-marcada-borrar" : ""}" data-acr-drag-item data-id="${f.id}">
       <div class="acr-foto-thumb-wrap" ${modoBorrar ? `data-acr-action="toggle-foto-borrar" data-id="${f.id}"` : ""}>
-        <img src="${f.dataUrl}" alt="Foto ${idx + 1}">
+        <img src="${f.dataUrl}" alt="Foto ${idx + 1}" draggable="false">
         ${modoBorrar ? `
           <span class="acr-foto-check-borrar ${marcadaParaBorrar ? "active" : ""}"><svg class="icon"><use href="#i-check"/></svg></span>
         ` : `
@@ -470,9 +434,10 @@ function renderGaleriaHTML() {
           </button>
           <button type="button" class="acr-foto-icon-btn acr-foto-icon-borrar" data-acr-action="pedir-borrar-foto" data-id="${f.id}" title="Borrar" aria-label="Borrar foto"><svg class="icon"><use href="#i-trash"/></svg></button>
           <button type="button" class="acr-foto-icon-btn acr-foto-icon-editar" data-acr-action="editar-foto" data-id="${f.id}" title="Editar" aria-label="Editar foto"><svg class="icon"><use href="#i-edit"/></svg></button>
+          ${fotos.length > 1 ? `<span class="acr-foto-handle" role="button" aria-label="Arrastrar para reordenar" title="Arrastrá para reordenar"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.8"/><circle cx="15" cy="6" r="1.8"/><circle cx="9" cy="12" r="1.8"/><circle cx="15" cy="12" r="1.8"/><circle cx="9" cy="18" r="1.8"/><circle cx="15" cy="18" r="1.8"/></svg></span>` : ""}
         `}
       </div>
-      <p class="acr-foto-desc-preview" ${modoBorrar ? "" : `data-acr-action="editar-descripcion-foto" data-id="${f.id}"`}>${prefijoFigura}${f.descripcion ? escapeHtml(f.descripcion) : '<span class="hint">Sin descripción — tocá para agregarla</span>'}</p>
+      <p class="acr-foto-desc-preview" ${modoBorrar ? "" : `data-acr-action="editar-descripcion-foto" data-id="${f.id}"`}>${prefijoFigura}${f.descripcion ? escapeHtml(f.descripcion) : '<span class="hint">Tocá para agregar una descripción</span>'}</p>
     </div>`;
   }).join("");
   return `
@@ -499,7 +464,7 @@ function renderGaleriaHTML() {
           `}
         </div>
         <div class="acr-fotos-grid">${items}</div>
-      ` : `<p class="hint" style="margin-top:16px">Todavía no agregaste fotos. Tocá "Añadir foto" arriba.</p>`}
+      ` : `<p class="hint" style="margin-top:16px">Todavía no agregaste fotos. Tocá "Añadir foto" arriba o arrastrá las fotos a cualquier parte de esta pantalla.</p>`}
     </div>`;
 }
 
@@ -1423,21 +1388,17 @@ function redimensionarImagenDataUrl(dataUrl, maxDim) {
 }
 async function agregarFotosDesdeArchivos(fileList) {
   const archivos = Array.from(fileList || []);
-  const idsNuevos = [];
   for (const file of archivos) {
     try {
       const dataUrl = await leerArchivoComoDataUrl(file);
       const chica = await redimensionarImagenDataUrl(dataUrl, FOTO_MAX_DIM);
       const id = Date.now() + Math.random();
       ACR_DRAFT.fotos.push({ id, dataUrl: chica, descripcion: "", seleccionada: true });
-      idsNuevos.push(id);
     } catch (e) { /* si una foto falla, se sigue con las demás */ }
   }
-  // Si se agregó una sola foto (caso típico: cámara), se abre directo el popup
-  // de descripción para ponerle texto al toque (o guardarla sin descripción).
-  // Si son varias, se quedan en la galería — forzar en cadena es peor experiencia.
-  if (idsNuevos.length === 1) { ACR_DESC_FOTO_MODAL_ID = idsNuevos[0]; ACR_DESC_FOTO_ES_NUEVA = true; renderAcreditacion(); }
-  else renderAcreditacion();
+  // Las fotos entran directo a la galería, sin pedir descripción: si se quiere una, se toca el texto
+  // "Figura N." de la foto y se escribe ahí mismo (iniciarEdicionDescripcionFoto).
+  renderAcreditacion();
 }
 function toggleSeleccionFoto(idx) { const f = ACR_DRAFT.fotos[idx]; if (f) f.seleccionada = !f.seleccionada; renderAcreditacion(); }
 function toggleSeleccionTodas() { const marcar = !todasSeleccionadas(); ACR_DRAFT.fotos.forEach((f) => { f.seleccionada = marcar; }); renderAcreditacion(); }
@@ -1830,126 +1791,190 @@ function bindCamposTexto(cont) {
     inputTexto.addEventListener("input", () => { if (ACR_FOTO_EDIT.textoPendiente) ACR_FOTO_EDIT.textoPendiente.texto = inputTexto.value; });
     inputTexto.addEventListener("blur", () => { if (ACR_FOTO_EDIT.textoPendiente) colocarTextoPendiente(); });
   }
-  const inputDescFoto = document.getElementById("acr-desc-foto-input");
-  if (inputDescFoto) inputDescFoto.focus();
 }
-// --- Reordenar fotos arrastrando (mouse: HTML5 Drag and Drop; touch: Pointer
-// Events, porque iOS Safari no soporta bien el DnD nativo con el dedo) ---
+// --- Reordenar fotos arrastrando ---
+// Un solo mecanismo (Pointer Events) para mouse y dedo, sin el arrastre nativo del navegador. El arrastre nativo
+// adjuntaba la imagen como "archivo" y el área de soltar archivos la agregaba otra vez (foto duplicada), y
+// `touch-action: none` en cada foto impedía hasta desplazar la galería con el dedo.
+//  - Dedo: se arrastra desde la agarradera (abajo a la izquierda de cada foto); el resto de la foto sigue
+//    desplazando la página con normalidad.
+//  - Mouse: se arrastra desde la agarradera o desde la miniatura.
+// Mientras se arrastra solo se mueve el DOM (rápido, sin parpadeo); el orden se confirma al soltar.
+let ACR_REORDENANDO = false;
 function ligarDragReordenarFotos(overlay) {
   const grid = overlay.querySelector(".acr-fotos-grid");
   if (!grid || grid.dataset.acrDragBind) return;
   grid.dataset.acrDragBind = "1";
-  let idArrastrado = null;
+  grid.addEventListener("dragstart", (evt) => evt.preventDefault());
+  const itemDe = (n) => (n && n.closest ? n.closest("[data-acr-drag-item]") : null);
+  const scroller = overlay.querySelector(".acr-content");
+  let ses = null; // { pid, item, x0, y0, desdeAsa, activo, ghost, ultX, ultY, rafId }
 
-  grid.addEventListener("dragstart", (evt) => {
-    const item = evt.target.closest("[data-acr-drag-item]");
-    if (!item) return;
-    idArrastrado = Number(item.getAttribute("data-id"));
-    item.classList.add("acr-foto-arrastrando");
-    evt.dataTransfer.effectAllowed = "move";
-    try { evt.dataTransfer.setData("text/plain", String(idArrastrado)); } catch (e) {}
-  });
-  grid.addEventListener("dragend", (evt) => {
-    const item = evt.target.closest("[data-acr-drag-item]");
-    if (item) item.classList.remove("acr-foto-arrastrando");
-    grid.querySelectorAll(".acr-foto-drop-antes, .acr-foto-drop-despues").forEach((el) => el.classList.remove("acr-foto-drop-antes", "acr-foto-drop-despues"));
-    idArrastrado = null;
-  });
-  grid.addEventListener("dragover", (evt) => {
-    const item = evt.target.closest("[data-acr-drag-item]");
-    if (!item || idArrastrado == null) return;
-    evt.preventDefault();
-    const rect = item.getBoundingClientRect();
-    const antes = evt.clientX < rect.left + rect.width / 2;
-    grid.querySelectorAll(".acr-foto-drop-antes, .acr-foto-drop-despues").forEach((el) => el.classList.remove("acr-foto-drop-antes", "acr-foto-drop-despues"));
-    item.classList.add(antes ? "acr-foto-drop-antes" : "acr-foto-drop-despues");
-  });
-  grid.addEventListener("drop", (evt) => {
-    const item = evt.target.closest("[data-acr-drag-item]");
-    if (!item || idArrastrado == null) return;
-    evt.preventDefault();
-    const rect = item.getBoundingClientRect();
-    const antes = evt.clientX < rect.left + rect.width / 2;
-    const idDestino = Number(item.getAttribute("data-id"));
-    moverFotoRelativoA(idArrastrado, idDestino, antes);
-    grid.querySelectorAll(".acr-foto-drop-antes, .acr-foto-drop-despues").forEach((el) => el.classList.remove("acr-foto-drop-antes", "acr-foto-drop-despues"));
-  });
+  const idsEnDom = () => Array.from(grid.querySelectorAll("[data-acr-drag-item]")).map((n) => n.getAttribute("data-id"));
+  const empezar = (evt) => {
+    ses.activo = true;
+    ACR_REORDENANDO = true;
+    ses.item.classList.add("acr-foto-arrastrando");
+    document.body.classList.add("acr-reordenando");
+    const img = ses.item.querySelector("img");
+    const g = document.createElement("div");
+    g.className = "acr-foto-ghost";
+    const w = Math.min(120, ses.item.getBoundingClientRect().width);
+    g.style.width = w + "px";
+    if (img) { const c = document.createElement("img"); c.src = img.src; c.alt = ""; c.draggable = false; g.appendChild(c); }
+    document.body.appendChild(g);
+    ses.ghost = g;
+    mover(evt.clientX, evt.clientY);
+    const autoscroll = () => {
+      if (!ses || !ses.activo) return;
+      if (scroller) {
+        const r = scroller.getBoundingClientRect();
+        const borde = 70;
+        let dy = 0;
+        if (ses.ultY < r.top + borde) dy = -Math.ceil((r.top + borde - ses.ultY) / 5);
+        else if (ses.ultY > r.bottom - borde) dy = Math.ceil((ses.ultY - (r.bottom - borde)) / 5);
+        if (dy) { scroller.scrollTop += dy; reubicar(); }
+      }
+      ses.rafId = requestAnimationFrame(autoscroll);
+    };
+    ses.rafId = requestAnimationFrame(autoscroll);
+  };
+  const reubicar = () => {
+    if (!ses || !ses.activo) return;
+    const el = document.elementFromPoint(ses.ultX, ses.ultY);
+    const objetivo = itemDe(el);
+    if (!objetivo || objetivo === ses.item || !grid.contains(objetivo)) return;
+    const r = objetivo.getBoundingClientRect();
+    const antes = ses.ultX < r.left + r.width / 2;
+    const ref = antes ? objetivo : objetivo.nextElementSibling;
+    if (ref === ses.item || (ref === null && grid.lastElementChild === ses.item)) return;
+    grid.insertBefore(ses.item, ref);
+  };
+  const mover = (x, y) => {
+    ses.ultX = x; ses.ultY = y;
+    if (ses.ghost) ses.ghost.style.transform = "translate(" + (x + 12) + "px," + (y + 12) + "px)";
+    reubicar();
+  };
+  const terminar = (confirmar) => {
+    if (!ses) return;
+    const s = ses; ses = null;
+    if (s.rafId) cancelAnimationFrame(s.rafId);
+    try { grid.releasePointerCapture(s.pid); } catch (e) {}
+    if (s.ghost) s.ghost.remove();
+    document.body.classList.remove("acr-reordenando");
+    s.item.classList.remove("acr-foto-arrastrando");
+    if (!s.activo) return;
+    setTimeout(() => { ACR_REORDENANDO = false; }, 0);
+    if (confirmar) aplicarOrdenFotos(idsEnDom());
+    renderAcreditacion(); // si se canceló, vuelve al orden guardado; si se confirmó, refresca los "Figura N"
+  };
 
-  // Fallback táctil: mantener presionado sobre la miniatura (no sobre los
-  // botones) e ir arrastrando el dedo reordena en vivo.
-  let touchId = null, touchTimer = null;
   grid.addEventListener("pointerdown", (evt) => {
-    if (evt.pointerType !== "touch") return;
-    const item = evt.target.closest("[data-acr-drag-item]");
-    if (!item || evt.target.closest("button")) return;
-    touchTimer = setTimeout(() => {
-      touchId = Number(item.getAttribute("data-id"));
-      item.classList.add("acr-foto-arrastrando");
-      if (navigator.vibrate) navigator.vibrate(15);
-    }, 350);
+    if (ses || ACR_FOTO_MODO_BORRAR) return;
+    if (evt.pointerType === "mouse" && evt.button !== 0) return;
+    const item = itemDe(evt.target);
+    if (!item) return;
+    const asa = evt.target.closest(".acr-foto-handle");
+    if (!asa && evt.target.closest("button, textarea, input")) return;
+    const enMiniatura = evt.target.closest(".acr-foto-thumb-wrap");
+    if (!asa && !(evt.pointerType === "mouse" && enMiniatura)) return;
+    ses = { pid: evt.pointerId, item, x0: evt.clientX, y0: evt.clientY, desdeAsa: !!asa, activo: false, ghost: null, ultX: evt.clientX, ultY: evt.clientY, rafId: 0 };
+    try { grid.setPointerCapture(evt.pointerId); } catch (e) {}
+    if (asa) { evt.preventDefault(); empezar(evt); }
   });
   grid.addEventListener("pointermove", (evt) => {
-    if (evt.pointerType !== "touch" || touchId == null) return;
+    if (!ses || evt.pointerId !== ses.pid) return;
+    if (!ses.activo) {
+      if (Math.abs(evt.clientX - ses.x0) + Math.abs(evt.clientY - ses.y0) < 6) return;
+      empezar(evt);
+    }
     evt.preventDefault();
-    const el = document.elementFromPoint(evt.clientX, evt.clientY);
-    const item = el && el.closest("[data-acr-drag-item]");
-    grid.querySelectorAll(".acr-foto-drop-antes, .acr-foto-drop-despues").forEach((n) => n.classList.remove("acr-foto-drop-antes", "acr-foto-drop-despues"));
-    if (item && Number(item.getAttribute("data-id")) !== touchId) {
-      const rect = item.getBoundingClientRect();
-      const antes = evt.clientX < rect.left + rect.width / 2;
-      item.classList.add(antes ? "acr-foto-drop-antes" : "acr-foto-drop-despues");
-    }
-  }, { passive: false });
-  grid.addEventListener("pointerup", (evt) => {
-    clearTimeout(touchTimer);
-    if (evt.pointerType !== "touch" || touchId == null) { touchId = null; return; }
-    const el = document.elementFromPoint(evt.clientX, evt.clientY);
-    const item = el && el.closest("[data-acr-drag-item]");
-    grid.querySelectorAll(".acr-foto-arrastrando").forEach((n) => n.classList.remove("acr-foto-arrastrando"));
-    grid.querySelectorAll(".acr-foto-drop-antes, .acr-foto-drop-despues").forEach((n) => n.classList.remove("acr-foto-drop-antes", "acr-foto-drop-despues"));
-    if (item) {
-      const idDestino = Number(item.getAttribute("data-id"));
-      if (idDestino !== touchId) {
-        const rect = item.getBoundingClientRect();
-        const antes = evt.clientX < rect.left + rect.width / 2;
-        moverFotoRelativoA(touchId, idDestino, antes);
-      }
-    }
-    touchId = null;
+    mover(evt.clientX, evt.clientY);
   });
-  grid.addEventListener("pointercancel", () => { clearTimeout(touchTimer); touchId = null; grid.querySelectorAll(".acr-foto-arrastrando").forEach((n) => n.classList.remove("acr-foto-arrastrando")); });
+  grid.addEventListener("pointerup", (evt) => { if (ses && evt.pointerId === ses.pid) terminar(true); });
+  grid.addEventListener("pointercancel", (evt) => { if (ses && evt.pointerId === ses.pid) terminar(false); });
+  grid.addEventListener("lostpointercapture", (evt) => { if (ses && evt.pointerId === ses.pid && ses.activo) terminar(true); });
+  document.addEventListener("keydown", function escReordenar(evt) {
+    if (!grid.isConnected) { document.removeEventListener("keydown", escReordenar); return; }
+    if (evt.key === "Escape" && ses) terminar(false);
+  });
 }
-function moverFotoRelativoA(idMovida, idDestino, antesDelDestino) {
-  const fotos = ACR_DRAFT.fotos;
-  const idxOrigen = fotos.findIndex((f) => f.id === idMovida);
-  if (idxOrigen === -1) return;
-  const [foto] = fotos.splice(idxOrigen, 1);
-  let idxDestino = fotos.findIndex((f) => f.id === idDestino);
-  if (idxDestino === -1) { fotos.push(foto); renderAcreditacion(); return; }
-  if (!antesDelDestino) idxDestino++;
-  fotos.splice(idxDestino, 0, foto);
-  renderAcreditacion();
+// Aplica un orden (lista de ids tal como están en el DOM) sin perder ni duplicar fotos.
+function aplicarOrdenFotos(idsOrden) {
+  const porId = new Map(ACR_DRAFT.fotos.map((f) => [String(f.id), f]));
+  const nuevas = [];
+  const vistos = new Set();
+  idsOrden.forEach((s) => { const f = porId.get(s); if (f && !vistos.has(s)) { nuevas.push(f); vistos.add(s); } });
+  ACR_DRAFT.fotos.forEach((f) => { if (!vistos.has(String(f.id))) nuevas.push(f); });
+  ACR_DRAFT.fotos = nuevas;
 }
 // --- Arrastrar archivos desde el escritorio para añadirlos a la galería ---
+// La zona de soltar es toda el área de fotos (la pantalla de contenido completa), no solo el botón.
 function ligarDropArchivosFotos(overlay) {
   const galeria = overlay.querySelector(".acr-galeria");
-  if (!galeria || galeria.dataset.acrDropBind) return;
-  galeria.dataset.acrDropBind = "1";
-  galeria.addEventListener("dragover", (evt) => {
-    if (!evt.dataTransfer || !Array.from(evt.dataTransfer.types || []).includes("Files")) return;
+  const zona = overlay.querySelector(".acr-content");
+  if (!galeria || !zona || zona.dataset.acrDropBind) return;
+  zona.dataset.acrDropBind = "1";
+  const traeArchivos = (evt) => !!evt.dataTransfer && Array.from(evt.dataTransfer.types || []).includes("Files");
+  let profundidad = 0;
+  const apagar = () => { profundidad = 0; galeria.classList.remove("acr-galeria-dragover"); };
+  zona.addEventListener("dragenter", (evt) => {
+    if (ACR_REORDENANDO || !traeArchivos(evt)) return;
     evt.preventDefault();
+    profundidad++;
     galeria.classList.add("acr-galeria-dragover");
   });
-  galeria.addEventListener("dragleave", (evt) => {
-    if (evt.target === galeria) galeria.classList.remove("acr-galeria-dragover");
-  });
-  galeria.addEventListener("drop", (evt) => {
-    if (!evt.dataTransfer || !evt.dataTransfer.files || !evt.dataTransfer.files.length) return;
+  zona.addEventListener("dragover", (evt) => {
+    if (ACR_REORDENANDO || !traeArchivos(evt)) return;
     evt.preventDefault();
-    galeria.classList.remove("acr-galeria-dragover");
-    const imagenes = Array.from(evt.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+    try { evt.dataTransfer.dropEffect = "copy"; } catch (e) {}
+  });
+  zona.addEventListener("dragleave", (evt) => {
+    if (!traeArchivos(evt)) return;
+    profundidad = Math.max(0, profundidad - 1);
+    if (!profundidad) galeria.classList.remove("acr-galeria-dragover");
+  });
+  zona.addEventListener("drop", (evt) => {
+    if (!traeArchivos(evt)) return;
+    evt.preventDefault();
+    apagar();
+    if (ACR_REORDENANDO) return;
+    const imagenes = Array.from(evt.dataTransfer.files || []).filter((f) => f.type.startsWith("image/"));
     if (imagenes.length) agregarFotosDesdeArchivos(imagenes);
   });
+}
+// --- Descripción de la foto, escrita en la misma galería (sin popup) ---
+// Se toca el texto "Figura N. …" y se vuelve editable en el lugar: lo que se escribe se ve ahí mismo y queda
+// guardado en el borrador al instante. Enter o tocar afuera termina; Escape deja el texto como estaba.
+function iniciarEdicionDescripcionFoto(p, id) {
+  if (!p || p.querySelector("textarea") || !ACR_DRAFT) return;
+  const foto = ACR_DRAFT.fotos.find((f) => f.id === id);
+  if (!foto) return;
+  const fuerte = p.querySelector("strong");
+  const prefijo = fuerte ? fuerte.outerHTML + " " : "";
+  const original = foto.descripcion || "";
+  p.classList.add("acr-foto-desc-editando");
+  p.innerHTML = prefijo + '<textarea class="acr-foto-desc-input" rows="1" placeholder="Escribí la descripción…" aria-label="Descripción de la foto"></textarea>';
+  const ta = p.querySelector("textarea");
+  ta.value = original;
+  const ajustar = () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; };
+  let cerrado = false;
+  const cerrar = () => {
+    if (cerrado) return;
+    cerrado = true;
+    p.classList.remove("acr-foto-desc-editando");
+    p.innerHTML = prefijo + (foto.descripcion ? escapeHtml(foto.descripcion) : '<span class="hint">Tocá para agregar una descripción</span>');
+  };
+  ta.addEventListener("input", () => { foto.descripcion = ta.value; ajustar(); });
+  ta.addEventListener("keydown", (evt) => {
+    if (evt.key === "Enter" && !evt.shiftKey) { evt.preventDefault(); ta.blur(); }
+    else if (evt.key === "Escape") { evt.preventDefault(); foto.descripcion = original; ta.blur(); }
+  });
+  ta.addEventListener("blur", cerrar);
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  ajustar();
+  try { ta.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
 }
 function agregarZonaDesdeInput() {
   const input = document.getElementById("acr-input-zona");
@@ -1995,16 +2020,7 @@ function attachEventos(overlay) {
     else if (accion === "confirmar-borrar-foto") ejecutarBorradoFotos();
     else if (accion === "editar-foto") abrirEditorFoto(Number(btn.getAttribute("data-id")));
     else if (accion === "abrir-foto") abrirEditorFoto(Number(btn.getAttribute("data-id")));
-    else if (accion === "editar-descripcion-foto") { ACR_DESC_FOTO_MODAL_ID = Number(btn.getAttribute("data-id")); ACR_DESC_FOTO_ES_NUEVA = false; renderAcreditacion(); }
-    else if (accion === "desc-foto-cancelar") { ACR_DESC_FOTO_MODAL_ID = null; ACR_DESC_FOTO_ES_NUEVA = false; renderAcreditacion(); }
-    else if (accion === "desc-foto-aplicar") {
-      const foto = ACR_DRAFT.fotos.find((f) => f.id === ACR_DESC_FOTO_MODAL_ID);
-      const input = document.getElementById("acr-desc-foto-input");
-      if (foto && input) foto.descripcion = input.value;
-      ACR_DESC_FOTO_MODAL_ID = null;
-      ACR_DESC_FOTO_ES_NUEVA = false;
-      renderAcreditacion();
-    }
+    else if (accion === "editar-descripcion-foto") iniciarEdicionDescripcionFoto(btn, id);
     else if (accion === "toggle-foto-visor") { const foto = ACR_DRAFT.fotos.find((f) => f.id === Number(btn.getAttribute("data-id"))); if (foto) foto.seleccionada = !foto.seleccionada; renderAcreditacion(); }
     else if (accion === "siguiente-a-form") { ACR_VISTA = "form"; renderAcreditacion(); }
     else if (accion === "toggle-datos-generales") { ACR_DATOS_GENERALES_ABIERTO = !ACR_DATOS_GENERALES_ABIERTO; renderAcreditacion(); }
