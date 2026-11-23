@@ -871,7 +871,10 @@ body.tf-open .lev-form-sticky, body.tf-open #levantamiento-fullscreen { padding-
 .acr-zona-tab { flex-shrink: 0; border: 1px solid var(--border); background: var(--surface-raised); border-radius: 999px; padding: 6px 14px; font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; color: var(--text-secondary); }
 .acr-zona-tab.active { background: var(--hilti-red); color: #fff; border-color: var(--hilti-red); }
 .acr-texto-preview { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; background: var(--surface); font-size: var(--fs-sm); line-height: 1.6; color: var(--text-secondary); white-space: normal; }
-.acr-galeria { display: flex; flex-direction: column; gap: 14px; max-width: 900px; margin: 0 auto; }
+.acr-galeria { display: flex; flex-direction: column; gap: 14px; max-width: 900px; margin: 0 auto; position: relative; }
+/* La galería ocupa todo el alto de la pantalla: toda esa área sirve para soltar fotos arrastradas (escritorio). */
+.acr-content:has(> .acr-galeria) { display: flex; flex-direction: column; }
+.acr-content > .acr-galeria { flex: 1 0 auto; width: 100%; align-content: start; }
 .acr-btn-add-foto { display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; width: 100%; padding: 16px; font-size: var(--fs-lg); font-weight: 700; box-shadow: 0 2px 8px rgba(226,0,26,0.25); }
 .acr-btn-add-foto .icon { width: 22px; height: 22px; }
 .acr-galeria-selectbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
@@ -885,11 +888,15 @@ button.danger:disabled { opacity: 0.4; cursor: not-allowed; }
 .acr-foto-check-borrar.active { background: var(--hilti-red); border-color: var(--hilti-red); }
 .acr-foto-check-borrar.active .icon { opacity: 1; }
 .acr-fotos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
-.acr-foto-item { touch-action: none; }
-.acr-foto-arrastrando { opacity: 0.4; }
-.acr-foto-drop-antes { box-shadow: -4px 0 0 var(--hilti-red); }
-.acr-foto-drop-despues { box-shadow: 4px 0 0 var(--hilti-red); }
-.acr-galeria-dragover { outline: 3px dashed var(--hilti-red); outline-offset: 6px; border-radius: var(--radius); background: rgba(226,0,26,0.04); }
+.acr-foto-arrastrando { opacity: 0.35; }
+.acr-galeria-dragover::after { content: "Soltá las fotos aquí"; position: absolute; inset: -8px; z-index: 5; display: flex; align-items: center; justify-content: center; border: 3px dashed var(--hilti-red); border-radius: var(--radius); background: rgba(226,0,26,0.07); color: var(--hilti-red); font-size: var(--fs-lg); font-weight: 700; pointer-events: none; }
+/* Agarradera para reordenar: solo ella bloquea el desplazamiento táctil. */
+.acr-foto-handle { position: absolute; left: 6px; bottom: 6px; width: 30px; height: 30px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; display: flex; align-items: center; justify-content: center; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.acr-foto-handle svg { width: 18px; height: 18px; fill: currentColor; pointer-events: none; }
+.acr-foto-ghost { position: fixed; left: 0; top: 0; z-index: 10000; pointer-events: none; opacity: 0.9; border-radius: var(--radius-sm); overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.35); border: 2px solid var(--hilti-red); }
+.acr-foto-ghost img { display: block; width: 100%; aspect-ratio: 4/3; object-fit: cover; }
+body.acr-reordenando, body.acr-reordenando * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
+.acr-foto-thumb-wrap img { -webkit-touch-callout: none; -webkit-user-drag: none; user-select: none; }
 .acr-foto-item { display: flex; flex-direction: column; gap: 6px; }
 .acr-foto-thumb-wrap { position: relative; cursor: pointer; border-radius: var(--radius-sm); overflow: hidden; border: 2px solid transparent; }
 .acr-foto-seleccionada .acr-foto-thumb-wrap { border-color: var(--hilti-red); }
@@ -904,6 +911,10 @@ button.danger:disabled { opacity: 0.4; cursor: not-allowed; }
 .acr-foto-icon-editar { bottom: 6px; right: 6px; }
 .acr-foto-desc-preview { margin: 0; font-size: var(--fs-sm); color: var(--text-secondary); cursor: pointer; line-height: 1.3; }
 .acr-foto-desc-preview .hint { font-size: var(--fs-sm); }
+.acr-foto-desc-preview.acr-foto-desc-editando { display: flex; gap: 4px; align-items: flex-start; }
+.acr-foto-desc-preview.acr-foto-desc-editando strong { flex: none; padding-top: 1px; }
+/* 16px: con menos, iOS Safari hace zoom al enfocar el campo. */
+.acr-foto-desc-input { flex: 1; min-width: 0; font: inherit; font-size: 16px; line-height: 1.3; color: var(--ink); background: transparent; border: 0; border-bottom: 2px solid var(--hilti-red); border-radius: 0; padding: 0 0 2px; resize: none; overflow: hidden; outline: none; }
 .acr-visor-overlay button, .acr-visor-overlay .lev-chip, #acr-elemento-overlay button, #acr-elemento-overlay .lev-chip { touch-action: manipulation; }
 .acr-editor-canvas-wrap { position: relative; width: 100%; flex: 1 1 0; min-height: 0; display: flex; align-items: center; justify-content: center; background: #000; touch-action: none; overscroll-behavior: none; }
 .acr-editor-canvas-wrap canvas { max-width: 100%; max-height: 100%; touch-action: none; }
