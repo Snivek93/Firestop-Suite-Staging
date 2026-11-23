@@ -170,6 +170,7 @@ const ICONOS_PROYECTOS_SVG = '<svg id="proy-iconos-extra" xmlns="http://www.w3.o
   + '<symbol id="i-px-switch" viewBox="0 0 24 24"><path d="M4 8h15M15 4l4 4-4 4M20 16H5M9 12l-4 4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>'
   + '<symbol id="i-px-user-check" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 19c0-3.3 2.7-5.2 6-5.2 1.6 0 3 .5 4 1.3M15 17.5l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>'
   + '<symbol id="i-px-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 7V4.5h4V7M6.5 7l1 12.5h9L17.5 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>'
+  + '<symbol id="i-px-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>'
   + '<symbol id="i-px-folder" viewBox="0 0 24 24"><path d="M5 4h4l3 3h7a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2" fill="currentColor" fill-opacity=".14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>'
   + '<symbol id="i-px-home" viewBox="0 0 24 24"><path d="M5 12H3l9-9 9 9h-2M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7M9 21v-6a2 2 0 012-2h2a2 2 0 012 2v6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>'
   + '<symbol id="i-px-folder-open" viewBox="0 0 24 24"><path d="M5 19l2.757-7.351A1 1 0 018.693 11H21a1 1 0 01.986 1.164l-.996 5.211A2 2 0 0119.026 19H5a2 2 0 01-2-2V6a2 2 0 012-2h4l3 3h7a2 2 0 012 2v2" fill="currentColor" fill-opacity=".14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>'
@@ -619,6 +620,29 @@ function accionBorrarCarpeta(id) {
   sincronizarCarpetas(cambios);
 }
 // carpetaId = null → "Sin carpeta"
+// Duplicar desde el menú ⋯: crea "<nombre> COPIA" en la misma carpeta y refresca la lista.
+let DUPLICANDO_PROYECTO = false;
+async function duplicarProyectoDesdeLista(id) {
+  if (DUPLICANDO_PROYECTO) return; // doble toque: una sola copia
+  if (!window.duplicarProyecto) { if (window.mostrarToast) mostrarToast("Duplicar no está disponible en esta versión.", "error"); return; }
+  DUPLICANDO_PROYECTO = true;
+  try {
+    const r = await window.duplicarProyecto(id);
+    if (!r || !r.ok) {
+      const msg = r && r.motivo === "sin-conexion" ? "Para duplicar este proyecto necesitás conexión (todavía no está descargado en este teléfono)."
+        : "No se pudo duplicar el proyecto. Intentá de nuevo.";
+      if (window.mostrarToast) mostrarToast(msg, "error");
+      return;
+    }
+    const carpetaOriginal = carpetaDe(id);
+    if (carpetaOriginal) accionMoverProyecto(r.id, carpetaOriginal);
+    if (window.mostrarToast) mostrarToast('Proyecto duplicado: "' + r.nombre + '".');
+    renderPantallaProyectos(ULTIMO_PERMITIR_CERRAR, false);
+  } finally {
+    DUPLICANDO_PROYECTO = false;
+  }
+}
+
 function accionMoverProyecto(proyectoId, carpetaId) {
   if (carpetaId) {
     CARPETA_ASIGNACIONES[proyectoId] = carpetaId;
@@ -2277,6 +2301,7 @@ async function renderPantallaProyectos(permitirCerrar, soloLocal) {
     const deNube = !zombi && (!!ctxLista.docs[id] || ctxLista.sincronizados.has(id));
     const ocupado = !!candadosAjenosPorProyecto[id];
     items.push({ i: n++, icono: "folder", texto: "Mover a carpeta", accion: () => abrirModalMoverACarpeta(id) });
+    items.push({ i: n++, icono: "copy", texto: "Duplicar", accion: () => duplicarProyectoDesdeLista(id) });
     if (zombi) {
       // Ya no está en la nube: solo se puede quitar de este teléfono (o abrir y hacer una copia editable).
       items.push({ sep: true });

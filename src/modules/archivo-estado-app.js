@@ -961,6 +961,51 @@ async function hacerCopiaLocalEditable() {
 }
 window.hacerCopiaLocalEditable = hacerCopiaLocalEditable;
 
+// Duplicar un proyecto desde la lista (menú ⋯). Crea OTRO proyecto, propio y editable, con todo el contenido
+// del original (filas, juntas, planos, informes, config, fotos) y el nombre "<nombre> COPIA". No toca el
+// original. La copia nace solo en este dispositivo (igual que "Hacer copia editable"): sube a la nube la
+// primera vez que se abre. Devuelve { ok, id, nombre } o { ok:false, motivo }.
+async function duplicarProyecto(id) {
+  if (!id) return { ok: false, motivo: "sin-id" };
+  // Si es el proyecto abierto, primero se guarda lo pendiente para no copiar una versión atrasada.
+  if (id === PROYECTO_ACTIVO_ID && autosaveTimer) {
+    clearTimeout(autosaveTimer); autosaveTimer = null;
+    try { await guardarAutoAhora(); } catch (e) {}
+  }
+  let data = null;
+  try { data = await idbLeerProyecto(id); } catch (e) { return { ok: false, motivo: "lectura" }; }
+  if (!data) {
+    // Nunca se abrió en este dispositivo: se baja completo de la nube (mismo camino que abrirlo).
+    if (!window.fsDescargarUltimaVersion) return { ok: false, motivo: "sin-datos" };
+    try {
+      const remoto = await window.fsDescargarUltimaVersion(id);
+      if (!remoto || !remoto.payloadJson) return { ok: false, motivo: "sin-conexion" };
+      if (!(await traerVersionRemotaYAdoptar(id, remoto))) return { ok: false, motivo: "sin-conexion" };
+      data = await idbLeerProyecto(id);
+    } catch (e) { return { ok: false, motivo: "sin-conexion" }; }
+    if (!data) return { ok: false, motivo: "sin-datos" };
+  }
+  const nuevoId = "p_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+  let payload;
+  try { payload = JSON.parse(JSON.stringify(data)); } catch (e) { return { ok: false, motivo: "lectura" }; }
+  const ahora = new Date().toISOString();
+  payload.id = nuevoId;
+  payload.guardadoEn = ahora;
+  payload.creadoEn = ahora;
+  const nombreOriginal = (payload.projectInfo && payload.projectInfo.nombre) || "Sin nombre";
+  payload.projectInfo = Object.assign({}, payload.projectInfo, { nombre: nombreOriginal + " COPIA" });
+  try {
+    await idbGuardarProyecto(nuevoId, payload);
+  } catch (e) {
+    return { ok: false, motivo: "guardado" };
+  }
+  if (window.registrarEspacioLocalDeProyectoNuevo) {
+    window.registrarEspacioLocalDeProyectoNuevo(nuevoId, window.espacioActivoIdActual ? window.espacioActivoIdActual() : null);
+  }
+  return { ok: true, id: nuevoId, nombre: payload.projectInfo.nombre };
+}
+window.duplicarProyecto = duplicarProyecto;
+
 async function soltarCandadoActivoSiHaceFalta() {
   aplicarModoSoloLectura(false);
   desactivarListenerProyectoActivo();
