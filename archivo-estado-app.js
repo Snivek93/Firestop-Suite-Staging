@@ -1,0 +1,1604 @@
+// ============================================================================
+// archivo-estado-app.js — encapsulado en IIFE (sin exponer todo a window; ver export list abajo)
+// ============================================================================
+var PROYECTO_ACTIVO_ID = null;
+var PROYECTO_ACTIVO_CREADO_EN = null;
+var PROYECTO_ACTIVO_COMPARTIDO = false;
+var PROYECTO_ACTIVO_FS_VERSION = null;
+var PROYECTO_ACTIVO_CANDADO_PROPIO = false;
+var PROYECTO_ACTIVO_MULTI_EDITOR = false;
+var PROYECTO_ACTIVO_SOLO_LECTURA = false;
+// true cuando edito un proyecto AJENO sin figurar en editoresUids: soy la persona dueña del espacio.
+var PROYECTO_ACTIVO_EDITA_AJENO = false;
+var PROYECTO_ACTIVO_HUBO_EDICION = false;
+(function () {
+let ULTIMO_GUARDADO = null;
+let FALLO_AUTOGUARDADO = false;
+
+function actualizarIndicadorArchivo() {
+  const badge = document.getElementById("save-status-badge");
+  const timeEl = document.getElementById("save-status-time");
+  const wrap = document.getElementById("save-status");
+  if (!badge || !timeEl || !wrap) return;
+  const nombreTxt = "";
+  if (FALLO_AUTOGUARDADO) {
+    badge.className = "save-status-badge error";
+    badge.textContent = "!";
+    timeEl.textContent = "sin guardar";
+    wrap.title = "No se pudo guardar automáticamente. Exportá el proyecto (.fss) para no perder el trabajo.";
+    return;
+  }
+  if (ULTIMO_GUARDADO) {
+    badge.className = "save-status-badge ok";
+    badge.textContent = "✓";
+    timeEl.textContent = ULTIMO_GUARDADO.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+    wrap.title = `Guardado a las ${ULTIMO_GUARDADO.toLocaleTimeString("es-CR")}${nombreTxt}`;
+  } else {
+    badge.className = "save-status-badge pending";
+    badge.textContent = "✕";
+    timeEl.textContent = "";
+    wrap.title = `Sin guardar cambios aún${nombreTxt}`;
+  }
+}
+
+function marcarGuardado() {
+  ULTIMO_GUARDADO = new Date();
+  actualizarIndicadorArchivo();
+}
+
+async function nuevoProyecto() {
+  await crearYAbrirProyectoNuevo();
+  mostrarToast("Proyecto nuevo. Empezá agregando filas o un levantamiento.");
+}
+
+const AUTOSAVE_KEY = "hiltiCortafuegoAutoguardado_v1";
+const IDB_NOMBRE = "firestopSuite";
+// IDB_VERSION 3: agrega IDB_STORE_INDICE — antes, listar los proyectos
+// (para la Pantalla de Proyectos, incluido el cambio entre Espacios de
+// Trabajo) leía el contenido COMPLETO de cada proyecto guardado en este
+// dispositivo (todas las filas, todas las fotos en base64) con
+// idbListarProyectos(), solo para mostrar nombre/cliente/fecha en una
+// tarjeta. Con varios proyectos pesados guardados localmente, eso podía
+// ser varios MB de JSON a decodificar en el hilo principal antes de poder
+// pintar nada — exactamente el "le doy al botón, no pasa nada, y de
+// repente salta" que describió Kevin (08/09/2026) al cambiar de espacio.
+// Ahora existe un store liviano paralelo (solo nombre/cliente/fecha por
+// proyecto) que se mantiene actualizado en la misma escritura que el
+// contenido completo — la lista lee de ahí, y el contenido pesado solo se
+// toca cuando de verdad se abre un proyecto puntual.
+const IDB_VERSION = 3;
+const IDB_STORE = "autoguardado";
+const IDB_CLAVE = "actual";
+const IDB_STORE_PROYECTOS = "proyectos";
+const IDB_STORE_META = "meta";
+const IDB_STORE_INDICE = "indiceProyectos";
+let IDB_PROMESA = null;
+
+function abrirIDB() {
+  if (IDB_PROMESA) return IDB_PROMESA;
+  IDB_PROMESA = new Promise((resolve, reject) => {
+    if (!window.indexedDB) { reject(new Error("IndexedDB no disponible en este navegador")); return; }
+    const req = indexedDB.open(IDB_NOMBRE, IDB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+      if (!db.objectStoreNames.contains(IDB_STORE_PROYECTOS)) db.createObjectStore(IDB_STORE_PROYECTOS);
+      if (!db.objectStoreNames.contains(IDB_STORE_META)) db.createObjectStore(IDB_STORE_META);
+      if (!db.objectStoreNames.contains(IDB_STORE_INDICE)) db.createObjectStore(IDB_STORE_INDICE);
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => {
+        db.close();
+        IDB_PROMESA = null;
+        avisarFalloGuardado(new Error("Esta pestaña quedó vieja (se abrió la app en otro lado). Recargá la página."));
+      };
+      resolve(db);
+    };
+    req.onerror = () => { IDB_PROMESA = null; reject(req.error || new Error("No se pudo abrir IndexedDB")); };
+    req.onblocked = () => { IDB_PROMESA = null; reject(new Error("IndexedDB bloqueada por otra pestaña — cerrá las demás pestañas de esta app y volvé a intentar.")); };
+  });
+  return IDB_PROMESA;
+}
+function idbGuardar(valor) {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(valor, IDB_CLAVE);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error("Error al escribir"));
+    tx.onabort = () => reject(tx.error || new Error("Transacción abortada (¿sin espacio?)"));
+  }));
+}
+function idbLeer() {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readonly");
+    const req = tx.objectStore(IDB_STORE).get(IDB_CLAVE);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error || new Error("Error al leer"));
+  }));
+}
+function idbBorrar() {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).delete(IDB_CLAVE);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error("Error al borrar"));
+  }));
+}
+function idbGuardarProyecto(id, valor) {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction([IDB_STORE_PROYECTOS, IDB_STORE_INDICE], "readwrite");
+    tx.objectStore(IDB_STORE_PROYECTOS).put(valor, id);
+    const info = (valor && valor.projectInfo) || {};
+    tx.objectStore(IDB_STORE_INDICE).put({
+      nombre: info.nombre || "",
+      cliente: info.cliente || "",
+      guardadoEn: valor && valor.guardadoEn ? valor.guardadoEn : null,
+      creadoEn: valor && valor.creadoEn ? valor.creadoEn : null,
+    }, id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error("Error al escribir el proyecto"));
+    tx.onabort = () => reject(tx.error || new Error("Transacción abortada (¿sin espacio?)"));
+  }));
+}
+
+// Lee SOLO el índice liviano — rápido incluso con muchos proyectos pesados
+// guardados localmente, porque nunca toca las filas ni las fotos.
+function idbListarIndiceProyectos() {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction([IDB_STORE_INDICE, IDB_STORE_PROYECTOS], "readonly");
+    const store = tx.objectStore(IDB_STORE_INDICE);
+    const reqClaves = tx.objectStore(IDB_STORE_PROYECTOS).getAllKeys();
+    const out = [];
+    const req = store.openCursor();
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor) {
+        const v = cursor.value || {};
+        out.push({
+          id: cursor.key,
+          data: { projectInfo: { nombre: v.nombre || "", cliente: v.cliente || "" }, guardadoEn: v.guardadoEn || null, creadoEn: v.creadoEn || null },
+        });
+        cursor.continue();
+      }
+    };
+    req.onerror = () => reject(req.error || new Error("Error al listar el índice de proyectos"));
+    tx.oncomplete = () => {
+      // Una entrada del índice sin su proyecto es un "fantasma" (un proyecto ya borrado): no se muestra y se limpia.
+      const existentes = new Set(reqClaves.result || []);
+      const validos = out.filter((x) => existentes.has(x.id));
+      const huerfanos = out.filter((x) => !existentes.has(x.id)).map((x) => x.id);
+      resolve(validos);
+      if (huerfanos.length) limpiarIndiceHuerfano(huerfanos);
+    };
+    tx.onerror = () => reject(tx.error || new Error("Error al listar el índice de proyectos"));
+  }));
+}
+// Borra del índice las entradas cuyo proyecto ya no existe. Se vuelve a comprobar dentro de la misma transacción
+// de escritura, por si justo se guardó un proyecto entre la lectura y esta limpieza.
+function limpiarIndiceHuerfano(ids) {
+  return abrirIDB().then((db) => new Promise((resolve) => {
+    const tx = db.transaction([IDB_STORE_INDICE, IDB_STORE_PROYECTOS], "readwrite");
+    ids.forEach((id) => {
+      const c = tx.objectStore(IDB_STORE_PROYECTOS).count(id);
+      c.onsuccess = () => { if (c.result === 0) tx.objectStore(IDB_STORE_INDICE).delete(id); };
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+    tx.onabort = () => resolve();
+  })).catch(() => {});
+}
+function idbClavesDeStore(nombreStore) {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    const req = db.transaction(nombreStore, "readonly").objectStore(nombreStore).getAllKeys();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error || new Error("Error al leer las claves"));
+  }));
+}
+
+function idbContarEnStore(nombreStore) {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(nombreStore, "readonly");
+    const req = tx.objectStore(nombreStore).count();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("Error al contar"));
+  }));
+}
+
+// Reconstruye el índice liviano UNA sola vez para proyectos que ya
+// existían antes de que este índice existiera (guardados con una versión
+// anterior de la app). Esto sí es lento (lee el contenido completo, igual
+// que antes) pero corre en segundo plano y nunca más de una vez por
+// proyecto — después, idbGuardarProyecto mantiene el índice solo.
+async function migrarIndiceProyectosSiHaceFalta() {
+  try {
+    const [clavesCompleto, clavesIndice] = await Promise.all([
+      idbClavesDeStore(IDB_STORE_PROYECTOS),
+      idbClavesDeStore(IDB_STORE_INDICE),
+    ]);
+    const enIndice = new Set(clavesIndice);
+    if (clavesCompleto.every((k) => enIndice.has(k))) return;
+    const todos = await idbListarProyectos();
+    const db = await abrirIDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE_INDICE, "readwrite");
+      const store = tx.objectStore(IDB_STORE_INDICE);
+      todos.forEach(({ id, data }) => {
+        const info = (data && data.projectInfo) || {};
+        store.put({
+          nombre: info.nombre || "",
+          cliente: info.cliente || "",
+          guardadoEn: data && data.guardadoEn ? data.guardadoEn : null,
+          creadoEn: data && data.creadoEn ? data.creadoEn : null,
+        }, id);
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error("Error al migrar el índice"));
+    });
+  } catch (e) {
+    console.error("No se pudo migrar el índice liviano de proyectos", e);
+  }
+}
+window.idbListarIndiceProyectos = idbListarIndiceProyectos;
+window.migrarIndiceProyectosSiHaceFalta = migrarIndiceProyectosSiHaceFalta;
+function idbLeerProyecto(id) {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE_PROYECTOS, "readonly");
+    const req = tx.objectStore(IDB_STORE_PROYECTOS).get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error || new Error("Error al leer el proyecto"));
+  }));
+}
+function idbBorrarProyecto(id) {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    // Antes solo se borraba del store de proyectos y la entrada del índice liviano quedaba para siempre: como la
+    // lista se arma desde ese índice, el proyecto borrado "reaparecía" a los pocos segundos.
+    const tx = db.transaction([IDB_STORE_PROYECTOS, IDB_STORE_INDICE], "readwrite");
+    tx.objectStore(IDB_STORE_PROYECTOS).delete(id);
+    tx.objectStore(IDB_STORE_INDICE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error("Error al borrar el proyecto"));
+  }));
+}
+function idbListarProyectos() {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE_PROYECTOS, "readonly");
+    const store = tx.objectStore(IDB_STORE_PROYECTOS);
+    const out = [];
+    const req = store.openCursor();
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor) { out.push({ id: cursor.key, data: cursor.value }); cursor.continue(); }
+      else resolve(out);
+    };
+    req.onerror = () => reject(req.error || new Error("Error al listar proyectos"));
+  }));
+}
+function idbGuardarActivo(id) {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE_META, "readwrite");
+    tx.objectStore(IDB_STORE_META).put(id, "activo");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error("Error al guardar el proyecto activo"));
+  }));
+}
+function idbLeerActivo() {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE_META, "readonly");
+    const req = tx.objectStore(IDB_STORE_META).get("activo");
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error || new Error("Error al leer el proyecto activo"));
+  }));
+}
+
+function idbGuardarMetaClave(clave, valor) {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE_META, "readwrite");
+    tx.objectStore(IDB_STORE_META).put(valor, clave);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error("Error al guardar " + clave));
+  }));
+}
+function idbLeerMetaClave(clave) {
+  return abrirIDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE_META, "readonly");
+    const req = tx.objectStore(IDB_STORE_META).get(clave);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error || new Error("Error al leer " + clave));
+  }));
+}
+
+async function pedirAlmacenamientoPersistente() {
+  try {
+    if (!navigator.storage || !navigator.storage.persist) return;
+    if (await navigator.storage.persisted()) return;
+    await navigator.storage.persist();
+  } catch (e) {}
+}
+
+function avisarFalloGuardado(err) {
+  console.error("Autoguardado falló:", err);
+  const primeraVez = !FALLO_AUTOGUARDADO;
+  FALLO_AUTOGUARDADO = true;
+  actualizarIndicadorArchivo();
+  if (primeraVez && window.mostrarToast) {
+    mostrarToast("No se pudo guardar automáticamente. Exportá el proyecto (.fss) ya para no perder el trabajo.", "error");
+  }
+}
+
+let autosaveTimer = null;
+let guardadoEnCurso = false;
+let guardadoPendiente = false;
+async function guardarAutoAhora() {
+  if (guardadoEnCurso) { guardadoPendiente = true; return; }
+  if (!PROYECTO_ACTIVO_ID) return;
+  guardadoEnCurso = true;
+  try {
+    const payload = datosProyectoActual();
+    payload.id = PROYECTO_ACTIVO_ID;
+    payload.guardadoEn = new Date().toISOString();
+    payload.creadoEn = PROYECTO_ACTIVO_CREADO_EN || payload.guardadoEn;
+    await idbGuardarProyecto(PROYECTO_ACTIVO_ID, payload);
+    if (FALLO_AUTOGUARDADO) FALLO_AUTOGUARDADO = false;
+    marcarGuardado();
+  } catch (e) {
+    avisarFalloGuardado(e);
+  } finally {
+    guardadoEnCurso = false;
+    if (guardadoPendiente) { guardadoPendiente = false; guardarAutoAhora(); }
+  }
+  if (PROYECTO_ACTIVO_COMPARTIDO && !FALLO_AUTOGUARDADO) sincronizarConFirestore();
+}
+function marcarCambio() {
+  if (PROYECTO_ACTIVO_ID) PROYECTO_ACTIVO_HUBO_EDICION = true;
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(guardarAutoAhora, 600);
+}
+
+let firestoreSyncTimer = null;
+let firestoreSyncEnCurso = false;
+let firestoreSyncPendiente = false;
+let avisandoSoloLectura = false;
+let avisandoTamano = false;
+let avisandoFotoFallida = false;
+let reintentoFotosTimer = null;
+let reintentoFotosIntentos = 0;
+const REINTENTO_FOTOS_MAX = 6;
+async function sincronizarConFirestoreAhora() {
+  if (firestoreSyncEnCurso) { firestoreSyncPendiente = true; return; }
+  if (!PROYECTO_ACTIVO_COMPARTIDO || !PROYECTO_ACTIVO_ID) return;
+  firestoreSyncEnCurso = true;
+  try {
+    const payload = datosProyectoActual();
+    const { jsonSinImagenes, imagenesJson } = extraerImagenesGrandes(JSON.stringify(payload));
+    let imagenesUrls = null;
+    let fotosFallaron = false;
+    if (window.fsSubirImagenesFaltantes) {
+      try {
+        const resultadoFotos = await window.fsSubirImagenesFaltantes(PROYECTO_ACTIVO_ID, imagenesJson);
+        imagenesUrls = resultadoFotos.urls;
+        fotosFallaron = !!resultadoFotos.algunaFallo;
+      } catch (e) {
+        fotosFallaron = true;
+        console.error("No se pudieron subir las fotos a Storage (se reintenta después):", e);
+      }
+    }
+    const tamPayload = new Blob([jsonSinImagenes]).size;
+    if (tamPayload > 900 * 1024) {
+      if (!avisandoTamano) {
+        avisandoTamano = true;
+        if (window.mostrarToast) mostrarToast("El proyecto quedó muy grande para sincronizarlo a la nube (" + Math.round(tamPayload / 1024) + " KB de texto). Se sigue guardando local, pero no se sube. Avisá para revisarlo.", "error");
+      }
+      console.error("Payload demasiado grande para Firestore:", tamPayload, "bytes");
+      return;
+    }
+    avisandoTamano = false;
+    const resultado = await window.fsSubirCambios(PROYECTO_ACTIVO_ID, jsonSinImagenes, PROYECTO_ACTIVO_FS_VERSION, imagenesUrls);
+    if (resultado.ok) {
+      PROYECTO_ACTIVO_FS_VERSION = resultado.version;
+      PROYECTO_ACTIVO_HUBO_EDICION = false;
+      avisandoSoloLectura = false;
+      try { await idbGuardarMetaClave(claveVersionLocal(PROYECTO_ACTIVO_ID), resultado.version); } catch (e2) {}
+      if (fotosFallaron) {
+        if (!avisandoFotoFallida) {
+          avisandoFotoFallida = true;
+          if (window.mostrarToast) mostrarToast("Una o más fotos no se pudieron subir a la nube todavía (señal floja). Se sigue intentando solo.", "error");
+        }
+        programarReintentoFotos();
+      } else {
+        avisandoFotoFallida = false;
+        reintentoFotosIntentos = 0;
+        if (reintentoFotosTimer) { clearTimeout(reintentoFotosTimer); reintentoFotosTimer = null; }
+      }
+      return;
+    }
+    if (resultado.conflicto) {
+      avisarConflictoSync(resultado.versionRemota);
+      return;
+    }
+    console.error("No se pudo sincronizar con Firestore:", resultado.error);
+  } catch (e) {
+    if (e && e.code === "permission-denied") {
+      if (!avisandoSoloLectura) {
+        avisandoSoloLectura = true;
+        if (window.mostrarToast) mostrarToast("Tus cambios se están guardando localmente, pero no se suben a la nube todavía porque otra persona tiene el proyecto en edición.", "error");
+      }
+    } else if (e && (e.code === "invalid-argument" || e.code === "resource-exhausted")) {
+      if (!avisandoTamano) {
+        avisandoTamano = true;
+        if (window.mostrarToast) mostrarToast("La nube rechazó este proyecto (" + e.code + "). Se sigue guardando local, pero no se sube. Avisá para revisarlo.", "error");
+      }
+      console.error("Firestore rechazó la escritura (no es falta de señal):", e);
+    } else {
+      console.error("Error de red al sincronizar con Firestore (se reintentará):", e);
+    }
+  } finally {
+    firestoreSyncEnCurso = false;
+    if (firestoreSyncPendiente) { firestoreSyncPendiente = false; sincronizarConFirestoreAhora(); }
+  }
+}
+function sincronizarConFirestore() {
+  if (firestoreSyncTimer) clearTimeout(firestoreSyncTimer);
+  firestoreSyncTimer = setTimeout(sincronizarConFirestoreAhora, 3000);
+}
+
+function programarReintentoFotos() {
+  if (reintentoFotosTimer) return;
+  if (reintentoFotosIntentos >= REINTENTO_FOTOS_MAX) return;
+  const idAlProgramar = PROYECTO_ACTIVO_ID;
+  const espera = 15000 * (reintentoFotosIntentos + 1);
+  reintentoFotosTimer = setTimeout(() => {
+    reintentoFotosTimer = null;
+    reintentoFotosIntentos++;
+    if (PROYECTO_ACTIVO_ID === idAlProgramar && PROYECTO_ACTIVO_COMPARTIDO) {
+      sincronizarConFirestoreAhora();
+    }
+  }, espera);
+}
+
+let reconexionEnCurso = false;
+async function manejarReconexion() {
+  if (reconexionEnCurso || !PROYECTO_ACTIVO_ID) return;
+  if (!window.fsDescargarUltimaVersion || !window.usuarioActual || !window.usuarioActual()) return;
+  reconexionEnCurso = true;
+  const idAlEmpezar = PROYECTO_ACTIVO_ID;
+  try {
+    const remoto = await window.fsDescargarUltimaVersion(idAlEmpezar);
+    if (PROYECTO_ACTIVO_ID !== idAlEmpezar) return;
+    if (!remoto) return;
+    PROYECTO_ACTIVO_COMPARTIDO = true;
+    PROYECTO_ACTIVO_MULTI_EDITOR = (Array.isArray(remoto.editoresUids) && remoto.editoresUids.length > 0) || PROYECTO_ACTIVO_EDITA_AJENO;
+    const versionDesconocidaOAtrasada =
+      PROYECTO_ACTIVO_FS_VERSION === null || remoto.version !== PROYECTO_ACTIVO_FS_VERSION;
+    if (PROYECTO_ACTIVO_HUBO_EDICION && versionDesconocidaOAtrasada) {
+      avisarConflictoAlReconectar(remoto);
+    } else if (versionDesconocidaOAtrasada) {
+      const ok = await traerVersionRemotaYAdoptar(idAlEmpezar, remoto);
+      if (!ok) PROYECTO_ACTIVO_FS_VERSION = remoto.version;
+      if (PROYECTO_ACTIVO_MULTI_EDITOR) await tomarCandadoSiCorresponde(idAlEmpezar);
+    } else {
+      if (PROYECTO_ACTIVO_MULTI_EDITOR) await tomarCandadoSiCorresponde(idAlEmpezar);
+    }
+  } catch (e) {
+  } finally {
+    reconexionEnCurso = false;
+  }
+}
+window.addEventListener("online", manejarReconexion);
+
+function avisarConflictoAlReconectar(remoto) {
+  if (avisandoConflicto) return;
+  avisandoConflicto = true;
+  window.pedirEleccion(
+    "Otra persona guardó cambios en este proyecto mientras estabas sin conexión. No se puede combinar automáticamente. Elegí cómo seguir.",
+    [
+      { label: "Traer esos cambios (descarta lo mío)", act: "traer", clase: "danger" },
+      { label: "Guardar lo mío como copia aparte", act: "copia", clase: "primary" },
+    ],
+    async (eleccion) => {
+      avisandoConflicto = false;
+      await resolverConflictoSync(eleccion, remoto.version);
+    },
+    true
+  );
+}
+
+let avisandoConflicto = false;
+function avisarConflictoSync(versionRemota) {
+  if (avisandoConflicto) return;
+  avisandoConflicto = true;
+  window.pedirEleccion(
+    "Este proyecto cambió en otro dispositivo mientras este estaba sin conexión (o editando al mismo tiempo). ¿Qué querés hacer?",
+    [
+      { label: "Traer la versión más nueva (descarta tus cambios locales)", act: "traer", clase: "danger" },
+      { label: "Guardar tu versión como copia aparte", act: "copia", clase: "primary" },
+      { label: "Seguir editando la mía por ahora (decidir después)", act: "cancelar", clase: "secondary" },
+    ],
+    async (eleccion) => {
+      avisandoConflicto = false;
+      await resolverConflictoSync(eleccion, versionRemota);
+    }
+  );
+}
+
+async function resolverConflictoSync(eleccion, versionRemota) {
+  if (eleccion === "traer") {
+    try {
+      const remoto = await window.fsDescargarUltimaVersion(PROYECTO_ACTIVO_ID);
+      if (!remoto) { mostrarToast("No se pudo traer la versión remota.", "error"); return; }
+      let jsonConImagenes = remoto.payloadJson;
+      if (remoto.imagenesUrls && Object.keys(remoto.imagenesUrls).length > 0 && window.fsDescargarImagenesComoJson) {
+        try {
+          const imagenesJson = await window.fsDescargarImagenesComoJson(remoto.imagenesUrls);
+          jsonConImagenes = reinsertarImagenesGrandes(remoto.payloadJson, imagenesJson);
+        } catch (e2) {
+          console.error("No se pudieron bajar las fotos de la versión remota (se trae el resto igual):", e2);
+        }
+      }
+      const data = JSON.parse(jsonConImagenes);
+      pushUndo();
+      cargarProyectoEnApp(data);
+      PROYECTO_ACTIVO_FS_VERSION = remoto.version;
+      PROYECTO_ACTIVO_HUBO_EDICION = false;
+      try { await idbGuardarMetaClave(claveVersionLocal(PROYECTO_ACTIVO_ID), remoto.version); } catch (e2) {}
+      marcarCambio();
+      mostrarToast("Se trajo la versión más nueva del proyecto.");
+    } catch (e) {
+      mostrarToast("No se pudo traer la versión remota: " + e.message, "error");
+    }
+  } else if (eleccion === "copia") {
+    const nuevoId = "p_" + Date.now().toString(36) + "_conflicto";
+    const payload = datosProyectoActual();
+    payload.id = nuevoId;
+    payload.guardadoEn = new Date().toISOString();
+    payload.creadoEn = payload.guardadoEn;
+    payload.projectInfo = Object.assign({}, payload.projectInfo, {
+      nombre: (payload.projectInfo.nombre || "Proyecto") + " (copia local sin sincronizar)",
+    });
+    try {
+      await idbGuardarProyecto(nuevoId, payload);
+      mostrarToast("Tu versión se guardó aparte como '" + payload.projectInfo.nombre + "'. Revisala en Proyectos y decidí cuál usar.");
+      PROYECTO_ACTIVO_HUBO_EDICION = false;
+      try {
+        const remoto = await window.fsDescargarUltimaVersion(PROYECTO_ACTIVO_ID);
+        if (remoto) {
+          const ok = await traerVersionRemotaYAdoptar(PROYECTO_ACTIVO_ID, remoto);
+          if (!ok) PROYECTO_ACTIVO_FS_VERSION = remoto.version;
+        }
+      } catch (e2) {}
+    } catch (e) {
+      mostrarToast("No se pudo guardar la copia: " + e.message, "error");
+    }
+  }
+}
+
+async function migrarDesdeLocalStorage() {
+  let txt = null;
+  try { txt = localStorage.getItem(AUTOSAVE_KEY); } catch (e) { return null; }
+  if (!txt) return null;
+  let data;
+  try { data = JSON.parse(txt); } catch (e) { return null; }
+  if (!data) return null;
+  try {
+    await idbGuardar(data);
+    localStorage.removeItem(AUTOSAVE_KEY);
+    console.info("Autoguardado migrado de localStorage a IndexedDB.");
+  } catch (e) {
+    console.error("No se pudo migrar el autoguardado a IndexedDB:", e);
+  }
+  return data;
+}
+function autoguardadoTieneContenido(data) {
+  if (!data) return false;
+  return (Array.isArray(data.filas) && data.filas.length > 0)
+    || (Array.isArray(data.planos) && data.planos.length > 0)
+    || (Array.isArray(data.informes) && data.informes.length > 0)
+    || (Array.isArray(data.itemsManuales) && data.itemsManuales.length > 0)
+    || (Array.isArray(data.filasJuntas) && data.filasJuntas.length > 0);
+}
+async function cargarAutoguardado() {
+  let data = null;
+  try {
+    data = await idbLeer();
+  } catch (e) {
+    avisarFalloGuardado(e);
+    try { const txt = localStorage.getItem(AUTOSAVE_KEY); if (txt) data = JSON.parse(txt); } catch (e2) {}
+    return autoguardadoTieneContenido(data) ? data : null;
+  }
+  if (!data) data = await migrarDesdeLocalStorage();
+  return autoguardadoTieneContenido(data) ? data : null;
+}
+function borrarAutoguardado() {
+  idbBorrar().catch((e) => console.error("No se pudo borrar el autoguardado:", e));
+  try { localStorage.removeItem(AUTOSAVE_KEY); } catch (e) {}
+}
+
+function cargarProyectoEnApp(data) {
+  ROWS = Array.isArray(data.filas) ? data.filas.map(f => Object.assign(nuevaFila(), f, { _id: typeof f._id === "number" ? f._id : ROW_SEQ++ })) : [];
+  ROW_SEQ = Math.max(ROW_SEQ, ...ROWS.map(r => r._id), 0) + 1;
+  if (Array.isArray(data.filasJuntas)) {
+    ROWS_J = data.filasJuntas.map(f => Object.assign({}, f, { _id: typeof f._id === "number" ? f._id : ROW_J_SEQ++ }));
+    ROW_J_SEQ = Math.max(ROW_J_SEQ, ...ROWS_J.map(r => r._id), 0) + 1;
+  } else {
+    ROWS_J = [];
+  }
+  MANUAL_ITEMS = Array.isArray(data.itemsManuales) ? data.itemsManuales.map(m => Object.assign({}, m, { _id: MANUAL_ITEM_SEQ++ })) : [];
+  Object.assign(CONFIG, CONFIG_DEFAULT);
+  if (data.config) Object.assign(CONFIG, data.config);
+  PROJECT_INFO.nombre = ""; PROJECT_INFO.cliente = ""; PROJECT_INFO.fecha = "";
+  if (data.projectInfo) Object.assign(PROJECT_INFO, data.projectInfo);
+  if (data.mainTableOverride) MAIN_TABLE = data.mainTableOverride;
+  if (data.juntasTableOverride) JUNTAS_TABLE = data.juntasTableOverride;
+  PLANOS = Array.isArray(data.planos) ? data.planos : [];
+  PLANO_SEQ = PLANOS.reduce((m, p) => Math.max(m, p.id || 0), 0) + 1;
+  INFORMES_ACREDITACION = Array.isArray(data.informes) ? data.informes : [];
+  INFORME_ACR_SEQ = INFORMES_ACREDITACION.reduce((m, i) => Math.max(m, i.id || 0), 0) + 1;
+  GRUPOS_CUANTIFICACION = data.gruposCuantificacion && typeof data.gruposCuantificacion === "object" ? data.gruposCuantificacion : { activo: false, asignaciones: {} };
+  NOTAS_ZONA = data.notasZona && typeof data.notasZona === "object" ? data.notasZona : {};
+  sincronizarCamposConfig();
+  const pn = document.getElementById("proj-nombre"); if (pn) pn.value = PROJECT_INFO.nombre;
+  const pc = document.getElementById("proj-cliente"); if (pc) pc.value = PROJECT_INFO.cliente;
+  const pf = document.getElementById("proj-fecha"); if (pf) pf.value = PROJECT_INFO.fecha;
+  renderTable();
+  renderLevantamientoTab();
+  // Si la pestaña activa es Resultados, repintarla con los datos del proyecto recién cargado
+  // (antes quedaba mostrando los del proyecto anterior hasta cambiar de pestaña).
+  if (ACTIVE_TAB === "resumen") renderResumen();
+  mostrarVistaProyecto();
+}
+
+// Barra animada de carga (no un spinner) para cuando hay que descargar un
+// proyecto que nunca se abrió en este dispositivo — Kevin, 08/09/2026:
+// "¿cómo mostramos la espera al abrir un proyecto que nunca se descargó?
+// una barra como de cargando".
+function mostrarBarraDescargandoProyecto() {
+  if (document.getElementById("proy-descarga-overlay")) return;
+  const el = document.createElement("div");
+  el.id = "proy-descarga-overlay";
+  el.className = "proy-descarga-overlay";
+  el.innerHTML = `
+    <p class="proy-descarga-texto">Descargando proyecto…</p>
+    <div class="proy-descarga-barra-pista"><div class="proy-descarga-barra-relleno"></div></div>
+  `;
+  document.body.appendChild(el);
+}
+function ocultarBarraDescargandoProyecto() {
+  const el = document.getElementById("proy-descarga-overlay");
+  if (el) el.remove();
+}
+
+async function abrirProyectoExistente(id) {
+  soltarCandadoActivoSiHaceFalta();
+  let data = null;
+  try {
+    data = await idbLeerProyecto(id);
+  } catch (e) {
+    avisarFalloGuardado(e);
+    return false;
+  }
+  if (!data) {
+    // Nunca se abrió en este dispositivo — la Pantalla de Proyectos lo
+    // mostró solo con datos livianos (nombre/cliente/fecha), sin
+    // contenido real todavía (ver actualizarMetadataListadoSiHaceFalta en
+    // proyectos.js). Se trae ahora, completo, mostrando la barra de carga
+    // mientras tanto. Reusa traerVersionRemotaYAdoptar — la misma función
+    // que ya se usa cuando detectarSiEsCompartido() encuentra una versión
+    // más nueva en otro dispositivo.
+    if (!window.fsDescargarUltimaVersion) return false;
+    mostrarBarraDescargandoProyecto();
+    try {
+      const remoto = await window.fsDescargarUltimaVersion(id);
+      if (!remoto || !remoto.payloadJson) {
+        ocultarBarraDescargandoProyecto();
+        mostrarToast("No se pudo descargar el proyecto. Revisá tu conexión.", "error");
+        return false;
+      }
+      const ok = await traerVersionRemotaYAdoptar(id, remoto);
+      ocultarBarraDescargandoProyecto();
+      if (!ok) {
+        mostrarToast("No se pudo descargar el proyecto.", "error");
+        return false;
+      }
+    } catch (e) {
+      ocultarBarraDescargandoProyecto();
+      mostrarToast("No se pudo descargar el proyecto. Revisá tu conexión.", "error");
+      return false;
+    }
+    try {
+      data = await idbLeerProyecto(id);
+    } catch (e) {
+      avisarFalloGuardado(e);
+      return false;
+    }
+    if (!data) return false;
+  }
+  PROYECTO_ACTIVO_ID = id;
+  PROYECTO_ACTIVO_CREADO_EN = data.creadoEn || data.guardadoEn || new Date().toISOString();
+  PROYECTO_ACTIVO_HUBO_EDICION = false;
+  try { await idbGuardarActivo(id); } catch (e) {}
+  cargarProyectoEnApp(data);
+  UNDO_STACK.length = 0;
+  actualizarBotonDeshacer();
+  ULTIMO_GUARDADO = data.guardadoEn ? new Date(data.guardadoEn) : null;
+  FALLO_AUTOGUARDADO = false;
+  actualizarIndicadorArchivo();
+  detectarSiEsCompartido(id);
+  return true;
+}
+
+function claveVersionLocal(id) { return "fsVersionLocal:" + id; }
+
+async function traerVersionRemotaYAdoptar(id, remoto) {
+  if (!remoto.payloadJson) return false;
+  try {
+    let jsonConImagenes = remoto.payloadJson;
+    if (remoto.imagenesUrls && Object.keys(remoto.imagenesUrls).length > 0 && window.fsDescargarImagenesComoJson) {
+      try {
+        const imagenesJson = await window.fsDescargarImagenesComoJson(remoto.imagenesUrls);
+        jsonConImagenes = reinsertarImagenesGrandes(remoto.payloadJson, imagenesJson);
+      } catch (e2) {
+        console.error("No se pudieron bajar las fotos de la versión remota (se adopta el resto igual):", e2);
+      }
+    }
+    const data = JSON.parse(jsonConImagenes);
+    data.id = id;
+    // Antes caía en new Date() cuando el payload no traía guardadoEn
+    // propio (no lo trae — ese campo nunca formó parte del export JSON,
+    // es puramente de almacenamiento local) — eso marcaba CUALQUIER
+    // proyecto recién descargado como "Actualizado hoy" sin importar
+    // cuándo se guardó de verdad. Ahora usa remoto.actualizadoEn (la
+    // fecha real de Firestore) primero, y new Date() solo como último
+    // recurso si ni eso está disponible. Kevin, 08/09/2026: "entrar en un
+    // proyecto ya cambia a Actualizado hoy [...] al rato vuelve a
+    // aparecer la fecha real".
+    data.guardadoEn = data.guardadoEn || remoto.actualizadoEn || new Date().toISOString();
+    data.creadoEn = data.creadoEn || data.guardadoEn;
+    await idbGuardarProyecto(id, data);
+    try { await idbGuardarMetaClave(claveVersionLocal(id), remoto.version); } catch (e2) {}
+    if (PROYECTO_ACTIVO_ID === id) {
+      cargarProyectoEnApp(data);
+      PROYECTO_ACTIVO_FS_VERSION = remoto.version;
+      ULTIMO_GUARDADO = new Date();
+      actualizarIndicadorArchivo();
+    }
+    return true;
+  } catch (e) {
+    console.error("No se pudo traer la versión remota:", e);
+    return false;
+  }
+}
+
+let UNSUB_LISTENER_PROYECTO = null;
+let listenerProyectoTimer = null;
+
+function activarListenerProyectoActivo(id) {
+  desactivarListenerProyectoActivo();
+  if (!window.fsEscucharProyecto) return;
+  UNSUB_LISTENER_PROYECTO = window.fsEscucharProyecto(id, (data, metadata) => {
+    manejarActualizacionEnVivo(id, data, metadata);
+  });
+}
+
+function desactivarListenerProyectoActivo() {
+  if (listenerProyectoTimer) { clearTimeout(listenerProyectoTimer); listenerProyectoTimer = null; }
+  if (UNSUB_LISTENER_PROYECTO) {
+    try { UNSUB_LISTENER_PROYECTO(); } catch (e) {}
+    UNSUB_LISTENER_PROYECTO = null;
+  }
+}
+
+function manejarActualizacionEnVivo(id, data, metadata) {
+  if (PROYECTO_ACTIVO_ID !== id) return;
+  if (metadata && metadata.hasPendingWrites) return;
+  const versionRemota = data.versionSync || 0;
+  if (versionRemota === PROYECTO_ACTIVO_FS_VERSION) return;
+  if (PROYECTO_ACTIVO_HUBO_EDICION) return;
+  if (listenerProyectoTimer) clearTimeout(listenerProyectoTimer);
+  listenerProyectoTimer = setTimeout(() => {
+    listenerProyectoTimer = null;
+    if (PROYECTO_ACTIVO_ID !== id || PROYECTO_ACTIVO_HUBO_EDICION) return;
+    const remoto = { payloadJson: data.payloadJson, version: versionRemota, imagenesUrls: data.imagenesUrls || {} };
+    traerVersionRemotaYAdoptar(id, remoto);
+  }, 1500);
+}
+
+async function detectarSiEsCompartido(id) {
+  PROYECTO_ACTIVO_COMPARTIDO = false;
+  PROYECTO_ACTIVO_FS_VERSION = null;
+  PROYECTO_ACTIVO_CANDADO_PROPIO = false;
+  PROYECTO_ACTIVO_MULTI_EDITOR = false;
+  PROYECTO_ACTIVO_EDITA_AJENO = false;
+  if (!window.fsDescargarUltimaVersion || !window.usuarioActual) return;
+  const user = window.usuarioActual();
+  if (!user) return;
+  try {
+    let remoto = await window.fsDescargarUltimaVersion(id);
+    if (PROYECTO_ACTIVO_ID !== id) return;
+    // Si este dispositivo YA había sincronizado este proyecto con la nube y ahora no existe allá, otra persona
+    // lo borró (o ya no tengo acceso). Antes se volvía a CREAR a nombre de quien lo abriera: así reaparecían
+    // proyectos borrados. Ahora se abre en solo lectura y se ofrece una copia editable.
+    if (!remoto) {
+      let sincronizadoAntes = null;
+      try { sincronizadoAntes = await idbLeerMetaClave(claveVersionLocal(id)); } catch (e2) {}
+      if (sincronizadoAntes !== null && sincronizadoAntes !== undefined) {
+        aplicarModoSoloLectura(true, null, "eliminado");
+        return;
+      }
+    }
+    if (!remoto && window.fsAsegurarProyecto) {
+      try {
+        await window.fsAsegurarProyecto(id, {
+          nombre: (typeof PROJECT_INFO !== "undefined" && PROJECT_INFO && PROJECT_INFO.nombre) || "",
+          cliente: (typeof PROJECT_INFO !== "undefined" && PROJECT_INFO && PROJECT_INFO.cliente) || "",
+          fecha: (typeof PROJECT_INFO !== "undefined" && PROJECT_INFO && PROJECT_INFO.fecha) || "",
+          ownerId: user.uid,
+          ownerEmail: user.email || "",
+          espacioId: window.espacioActivoIdActual ? window.espacioActivoIdActual() : null,
+        });
+        if (PROYECTO_ACTIVO_ID !== id) return;
+        remoto = await window.fsDescargarUltimaVersion(id);
+      } catch (e2) {
+      }
+    }
+    if (remoto) {
+      PROYECTO_ACTIVO_COMPARTIDO = true;
+      PROYECTO_ACTIVO_MULTI_EDITOR = Array.isArray(remoto.editoresUids) && remoto.editoresUids.length > 0;
+      let versionLocalConocida = null;
+      try { versionLocalConocida = await idbLeerMetaClave(claveVersionLocal(id)); } catch (e2) {}
+      let seRecuperoContenido = false;
+      if (versionLocalConocida === null || versionLocalConocida !== remoto.version) {
+        const ok = await traerVersionRemotaYAdoptar(id, remoto);
+        if (!ok) PROYECTO_ACTIVO_FS_VERSION = remoto.version;
+        seRecuperoContenido = ok;
+      } else {
+        PROYECTO_ACTIVO_FS_VERSION = remoto.version;
+      }
+      if (PROYECTO_ACTIVO_ID !== id) return;
+      // Permiso real de edición: dueño, o editor invitado explícitamente
+      // (editoresUids). Ver un proyecto por pertenecer a un espacio de
+      // trabajo NO da permiso de edición por sí solo — eso lo sigue
+      // decidiendo el dueño del proyecto, puntualmente (fsCompartirProyecto).
+      // Sin este permiso, el proyecto se abre en solo lectura PERMANENTE,
+      // sin importar si hay candado libre o no — no tiene sentido pedir un
+      // candado que las reglas de Firestore igual van a rechazar al guardar.
+      let tieneAccesoEdicion = remoto.ownerId === user.uid
+        || (Array.isArray(remoto.editoresUids) && remoto.editoresUids.includes(user.uid));
+      // La persona dueña del espacio de trabajo también puede editar todo lo que hay en él.
+      if (!tieneAccesoEdicion && window.soyDuenoDelEspacioDelProyecto) {
+        try { tieneAccesoEdicion = await window.soyDuenoDelEspacioDelProyecto(id); } catch (e2) { tieneAccesoEdicion = false; }
+        if (PROYECTO_ACTIVO_ID !== id) return;
+        if (tieneAccesoEdicion) {
+          // Edita algo ajeno sin estar en editoresUids: se trata como proyecto de varias personas (candado).
+          PROYECTO_ACTIVO_EDITA_AJENO = true;
+          PROYECTO_ACTIVO_MULTI_EDITOR = true;
+        }
+      }
+      if (!tieneAccesoEdicion) {
+        aplicarModoSoloLectura(true, null, "permiso");
+      } else if (PROYECTO_ACTIVO_MULTI_EDITOR) {
+        await tomarCandadoSiCorresponde(id);
+        if (PROYECTO_ACTIVO_ID === id) activarListenerProyectoActivo(id);
+      }
+      if (!remoto.payloadJson && !seRecuperoContenido) {
+        // Solo se sube si hay algo que subir. Un proyecto recién creado (sin nombre y sin nada adentro) NO se sube:
+        // antes se mandaba un payload vacío que dejaba en la nube un documento "con contenido" pero sin nombre, y
+        // en la lista aparecía como "(Sin nombre — abrir para corregir)" en los demás dispositivos. La primera
+        // subida real ocurre sola en cuanto se escribe el nombre o se agrega algo (autoguardado → sincronizar).
+        let hayAlgoQueSubir = true;
+        try {
+          const pi = (typeof PROJECT_INFO !== "undefined" && PROJECT_INFO) || {};
+          hayAlgoQueSubir = !!(String(pi.nombre || "").trim() || String(pi.cliente || "").trim() || autoguardadoTieneContenido(datosProyectoActual()));
+        } catch (e3) { hayAlgoQueSubir = true; }
+        if (hayAlgoQueSubir) sincronizarConFirestoreAhora();
+      }
+    }
+  } catch (e) {
+  }
+}
+
+async function tomarCandadoSiCorresponde(id) {
+  if (!window.fsTomarCandado) { aplicarModoSoloLectura(false); return; }
+  const user = window.usuarioActual ? window.usuarioActual() : null;
+  if (!user) { aplicarModoSoloLectura(false); return; }
+  try {
+    const resultado = await window.fsTomarCandado(id, user.uid, user.displayName || user.email || "");
+    if (PROYECTO_ACTIVO_ID !== id) return;
+    PROYECTO_ACTIVO_CANDADO_PROPIO = !!resultado.ok;
+    aplicarModoSoloLectura(!resultado.ok, resultado.ocupadoPor);
+  } catch (e) {
+    PROYECTO_ACTIVO_CANDADO_PROPIO = false;
+    aplicarModoSoloLectura(false);
+  }
+}
+
+function aplicarModoSoloLectura(activo, ocupadoPor, motivo) {
+  PROYECTO_ACTIVO_SOLO_LECTURA = !!activo;
+  const main = document.querySelector("main");
+  const banner = document.getElementById("solo-lectura-banner");
+  const texto = document.getElementById("solo-lectura-texto");
+  if (main) main.classList.toggle("solo-lectura", PROYECTO_ACTIVO_SOLO_LECTURA);
+  if (banner) banner.style.display = PROYECTO_ACTIVO_SOLO_LECTURA ? "flex" : "none";
+  if (texto && PROYECTO_ACTIVO_SOLO_LECTURA) {
+    texto.textContent = motivo === "permiso"
+      ? "Solo lectura — no tenés permiso de edición en este espacio"
+      : motivo === "eliminado"
+        ? "Solo lectura — este proyecto ya no está en la nube (lo eliminó otra persona)"
+        : `Solo lectura — ${ocupadoPor || "otra persona"} está editando`;
+  }
+  // Botón "Hacer copia editable": solo tiene sentido cuando el motivo es
+  // falta de permiso (permanente) — si es candado ajeno (temporal), el
+  // proyecto vuelve a ser editable solo cuando se libere, no tiene caso
+  // ofrecer una copia aparte para eso.
+  if (banner) {
+    let btnCopia = document.getElementById("btn-solo-lectura-copia");
+    if (PROYECTO_ACTIVO_SOLO_LECTURA && (motivo === "permiso" || motivo === "eliminado")) {
+      if (!btnCopia) {
+        btnCopia = document.createElement("button");
+        btnCopia.type = "button";
+        btnCopia.id = "btn-solo-lectura-copia";
+        btnCopia.className = "solo-lectura-banner-btn";
+        btnCopia.textContent = "Hacer copia editable";
+        btnCopia.addEventListener("click", hacerCopiaLocalEditable);
+        banner.appendChild(btnCopia);
+      }
+    } else if (btnCopia) {
+      btnCopia.remove();
+    }
+  }
+}
+
+// Copia local del proyecto activo (que se está viendo en solo lectura por
+// falta de permiso) como un proyecto nuevo, propio y editable — no toca el
+// original ni requiere permiso de nadie, porque nace sin id compartido ni
+// respaldo remoto todavía (se sincroniza como cualquier proyecto nuevo la
+// próxima vez que se abra, con el dueño de la copia como owner).
+async function hacerCopiaLocalEditable() {
+  const nuevoId = "p_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+  const payload = datosProyectoActual();
+  payload.id = nuevoId;
+  payload.guardadoEn = new Date().toISOString();
+  payload.creadoEn = payload.guardadoEn;
+  payload.projectInfo = Object.assign({}, payload.projectInfo, {
+    nombre: "Copia de " + ((payload.projectInfo && payload.projectInfo.nombre) || "proyecto"),
+  });
+  try {
+    await idbGuardarProyecto(nuevoId, payload);
+    mostrarToast(`Copia editable creada: "${payload.projectInfo.nombre}". La vas a ver en Propio.`);
+  } catch (e) {
+    mostrarToast("No se pudo crear la copia: " + e.message, "error");
+  }
+}
+window.hacerCopiaLocalEditable = hacerCopiaLocalEditable;
+
+// Duplicar un proyecto desde la lista (menú ⋯). Crea OTRO proyecto, propio y editable, con todo el contenido
+// del original (filas, juntas, planos, informes, config, fotos) y el nombre "<nombre> COPIA". No toca el
+// original. La copia nace solo en este dispositivo (igual que "Hacer copia editable"): sube a la nube la
+// primera vez que se abre. Devuelve { ok, id, nombre } o { ok:false, motivo }.
+async function duplicarProyecto(id) {
+  if (!id) return { ok: false, motivo: "sin-id" };
+  // Si es el proyecto abierto, primero se guarda lo pendiente para no copiar una versión atrasada.
+  if (id === PROYECTO_ACTIVO_ID && autosaveTimer) {
+    clearTimeout(autosaveTimer); autosaveTimer = null;
+    try { await guardarAutoAhora(); } catch (e) {}
+  }
+  let data = null;
+  try { data = await idbLeerProyecto(id); } catch (e) { return { ok: false, motivo: "lectura" }; }
+  if (!data) {
+    // Nunca se abrió en este dispositivo: se baja completo de la nube (mismo camino que abrirlo).
+    if (!window.fsDescargarUltimaVersion) return { ok: false, motivo: "sin-datos" };
+    try {
+      const remoto = await window.fsDescargarUltimaVersion(id);
+      if (!remoto || !remoto.payloadJson) return { ok: false, motivo: "sin-conexion" };
+      if (!(await traerVersionRemotaYAdoptar(id, remoto))) return { ok: false, motivo: "sin-conexion" };
+      data = await idbLeerProyecto(id);
+    } catch (e) { return { ok: false, motivo: "sin-conexion" }; }
+    if (!data) return { ok: false, motivo: "sin-datos" };
+  }
+  const nuevoId = "p_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+  let payload;
+  try { payload = JSON.parse(JSON.stringify(data)); } catch (e) { return { ok: false, motivo: "lectura" }; }
+  const ahora = new Date().toISOString();
+  payload.id = nuevoId;
+  payload.guardadoEn = ahora;
+  payload.creadoEn = ahora;
+  const nombreOriginal = (payload.projectInfo && payload.projectInfo.nombre) || "Sin nombre";
+  payload.projectInfo = Object.assign({}, payload.projectInfo, { nombre: nombreOriginal + " COPIA" });
+  try {
+    await idbGuardarProyecto(nuevoId, payload);
+  } catch (e) {
+    return { ok: false, motivo: "guardado" };
+  }
+  if (window.registrarEspacioLocalDeProyectoNuevo) {
+    window.registrarEspacioLocalDeProyectoNuevo(nuevoId, window.espacioActivoIdActual ? window.espacioActivoIdActual() : null);
+  }
+  return { ok: true, id: nuevoId, nombre: payload.projectInfo.nombre };
+}
+window.duplicarProyecto = duplicarProyecto;
+
+async function soltarCandadoActivoSiHaceFalta() {
+  aplicarModoSoloLectura(false);
+  desactivarListenerProyectoActivo();
+  if (reintentoFotosTimer) { clearTimeout(reintentoFotosTimer); reintentoFotosTimer = null; }
+  reintentoFotosIntentos = 0;
+  avisandoFotoFallida = false;
+  if (!PROYECTO_ACTIVO_COMPARTIDO || !PROYECTO_ACTIVO_CANDADO_PROPIO || !PROYECTO_ACTIVO_ID) {
+    PROYECTO_ACTIVO_CANDADO_PROPIO = false;
+    return;
+  }
+  const idPrevio = PROYECTO_ACTIVO_ID;
+  const user = window.usuarioActual ? window.usuarioActual() : null;
+  PROYECTO_ACTIVO_CANDADO_PROPIO = false;
+  if (!user || !window.fsSoltarCandado) return;
+  try {
+    await window.fsSoltarCandado(idPrevio, user.uid);
+  } catch (e) {
+  }
+}
+
+async function crearYAbrirProyectoNuevo() {
+  soltarCandadoActivoSiHaceFalta();
+  const id = "p_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+  // Asignación optimista y local del espacio activo a este proyecto nuevo
+  // — funciona sin conexión, no depende de que Firestore confirme nada
+  // todavía. Cierra el hueco de "proyecto creado offline en un espacio
+  // compartido no aparece en la lista agrupada hasta la primera sync".
+  // Kevin, 08/09/2026. Cuando la sincronización real confirme el espacio
+  // (o su ausencia), proyectos.js lo sobreescribe con el dato real solo.
+  if (window.registrarEspacioLocalDeProyectoNuevo) {
+    window.registrarEspacioLocalDeProyectoNuevo(id, window.espacioActivoIdActual ? window.espacioActivoIdActual() : null);
+  }
+  PROYECTO_ACTIVO_ID = id;
+  PROYECTO_ACTIVO_CREADO_EN = new Date().toISOString();
+  PROYECTO_ACTIVO_COMPARTIDO = false;
+  PROYECTO_ACTIVO_FS_VERSION = null;
+  PROYECTO_ACTIVO_MULTI_EDITOR = false;
+  PROYECTO_ACTIVO_HUBO_EDICION = false;
+  try { await idbGuardarActivo(id); } catch (e) {}
+  ROWS = []; ROWS_J = []; MANUAL_ITEMS = []; PLANOS = []; INFORMES_ACREDITACION = [];
+  Object.assign(CONFIG, CONFIG_DEFAULT);
+  PROJECT_INFO.nombre = ""; PROJECT_INFO.cliente = ""; PROJECT_INFO.fecha = "";
+  sincronizarCamposConfig();
+  const pn = document.getElementById("proj-nombre"); if (pn) pn.value = "";
+  const pc = document.getElementById("proj-cliente"); if (pc) pc.value = "";
+  const pf = document.getElementById("proj-fecha"); if (pf) pf.value = "";
+  renderTable();
+  renderLevantamientoTab();
+  mostrarVistaProyecto();
+  UNDO_STACK.length = 0;
+  actualizarBotonDeshacer();
+  ULTIMO_GUARDADO = null;
+  FALLO_AUTOGUARDADO = false;
+  actualizarIndicadorArchivo();
+  detectarSiEsCompartido(id);
+  return id;
+}
+
+async function migrarProyectoUnicoSiHaceFalta() {
+  let lista = [];
+  try { lista = await idbListarProyectos(); } catch (e) { return; }
+  if (lista.length > 0) return;
+  let dataVieja = null;
+  try { dataVieja = await idbLeer(); } catch (e) { dataVieja = null; }
+  if (!dataVieja) dataVieja = await migrarDesdeLocalStorage();
+  if (!autoguardadoTieneContenido(dataVieja)) return;
+  const id = "p_" + Date.now().toString(36) + "_migrado";
+  dataVieja.id = id;
+  dataVieja.creadoEn = dataVieja.guardadoEn || new Date().toISOString();
+  dataVieja.guardadoEn = dataVieja.guardadoEn || new Date().toISOString();
+  try {
+    await idbGuardarProyecto(id, dataVieja);
+    await idbGuardarActivo(id);
+    await idbBorrar();
+    console.info("Proyecto único migrado a la estructura multi-proyecto:", id);
+  } catch (e) {
+    console.error("No se pudo migrar el proyecto único a multi-proyecto:", e);
+  }
+}
+
+let UNDO_STACK = [];
+const UNDO_MAX = 25;
+function pushUndo() {
+  try {
+    UNDO_STACK.push(JSON.stringify({ rows: ROWS, rowsJ: ROWS_J }));
+    if (UNDO_STACK.length > UNDO_MAX) UNDO_STACK.shift();
+  } catch (e) {}
+  actualizarBotonDeshacer();
+}
+function actualizarBotonDeshacer() {
+  ["btn-deshacer", "btn-deshacer-lev-fs", "btn-deshacer-lev-tab"].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = UNDO_STACK.length === 0;
+  });
+}
+function deshacerCambio() {
+  if (UNDO_STACK.length === 0) { mostrarToast("No hay cambios para deshacer.", "error"); return; }
+  const prev = JSON.parse(UNDO_STACK.pop());
+  ROWS = prev.rows || prev;
+  ROWS_J = prev.rowsJ || [];
+  const maxId = ROWS.reduce((m, r) => Math.max(m, r._id || 0), 0);
+  ROW_SEQ = Math.max(ROW_SEQ, maxId + 1);
+  const maxIdJ = ROWS_J.reduce((m, r) => Math.max(m, r._id || 0), 0);
+  ROW_J_SEQ = Math.max(ROW_J_SEQ, maxIdJ + 1);
+  renderTable();
+  if (ACTIVE_TAB === "resumen") renderResumen();
+  if (ACTIVE_TAB === "levantamiento-tab") renderLevantamientoTab();
+  if (document.body.classList.contains("modo-levantamiento")) renderLevantamiento();
+  actualizarBotonDeshacer();
+  marcarCambio();
+  mostrarToast("Cambio revertido.");
+}
+
+function borrarTodo() {
+  if (ROWS.length === 0 && ROWS_J.length === 0) { mostrarToast("No hay filas para borrar."); return; }
+  pedirConfirmacion(
+    `Esto va a borrar las ${ROWS.length} fila(s) de penetrantes y ${ROWS_J.length} de juntas. Podés deshacerlo con el botón "Deshacer". ¿Continuar?`,
+    () => {
+      pushUndo();
+      ROWS = [];
+      ROWS_J = [];
+      renderTable();
+      if (ACTIVE_TAB === "resumen") renderResumen();
+      if (ACTIVE_TAB === "levantamiento-tab") renderLevantamientoTab();
+      marcarCambio();
+      mostrarToast("Se borraron todas las filas.");
+    }
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Arranque que NO depende de la red (05/10/2026). Bug real de Kevin: con señal
+// mala la app se quedaba en el splash y luego en pantalla negra porque
+// initApp() esperaba esperarAutenticacion() sin tope de tiempo (y los SDK de
+// Firebase eran <script> síncronos que podían colgar el DOMContentLoaded).
+//  - Con una cuenta ya verificada en este dispositivo (identidad local): si
+//    Firebase Auth no contesta en AUTH_ESPERA_CON_CUENTA_MS, la app abre con
+//    los datos locales y la sesión se completa en segundo plano.
+//  - Sin cuenta guardada (primera vez en este dispositivo): hace falta iniciar
+//    sesión con conexión; si no hay, se muestra un aviso claro (no un splash
+//    eterno) y se sigue esperando.
+// Todo está protegido con "window.x &&": funciona aunque alguno de los módulos
+// nuevos (arranque-offline.js, firebase-auth.js) todavía no haya cargado, o sea
+// de una versión anterior.
+// ----------------------------------------------------------------------------
+const AUTH_ESPERA_CON_CUENTA_MS = 3500;
+const AVISO_PRIMER_INGRESO_MS = 6000;
+const ESPERA_AGOTADA = { agotada: true };
+
+function esperarTope(ms) {
+  return new Promise((resolve) => setTimeout(() => resolve(ESPERA_AGOTADA), ms));
+}
+
+// Se resuelve con el usuario verificado cuando Firebase Auth lo confirma. Nunca
+// se rechaza; si Firebase no llega a cargar, simplemente queda pendiente.
+function promesaDeSesion() {
+  return (async () => {
+    if (window.firebaseListo) { try { await window.firebaseListo; } catch (e) {} }
+    if (window.esperarAutenticacion) return window.esperarAutenticacion();
+    return new Promise(() => {});
+  })();
+}
+
+// Devuelve "online" (sesión confirmada) o "local" (se abre con lo guardado en
+// este dispositivo mientras la sesión se confirma sola cuando haya señal).
+async function esperarSesionOModoLocal() {
+  const identidad = window.leerIdentidadLocal ? window.leerIdentidadLocal() : null;
+  const sesion = promesaDeSesion();
+  if (identidad) {
+    const r = await Promise.race([sesion, esperarTope(AUTH_ESPERA_CON_CUENTA_MS)]);
+    if (r !== ESPERA_AGOTADA) return "online";
+    sesion.then((user) => alAutenticarseTrasModoLocal(user, identidad));
+    return "local";
+  }
+  const aviso = setTimeout(() => {
+    if (window.mostrarPanelPrimerIngreso) window.mostrarPanelPrimerIngreso();
+  }, AVISO_PRIMER_INGRESO_MS);
+  try { await sesion; } finally { clearTimeout(aviso); }
+  if (window.quitarPanelPrimerIngreso) window.quitarPanelPrimerIngreso();
+  return "online";
+}
+
+// La sesión se confirmó DESPUÉS de haber abierto la app en modo local.
+function alAutenticarseTrasModoLocal(user, identidad) {
+  try {
+    // Entró otra cuenta distinta de la guardada: se recarga para no arrastrar
+    // estado de la anterior (igual que ya hace firebase-auth.js al cerrar sesión).
+    if (identidad && user && identidad.uid && user.uid && identidad.uid !== user.uid) {
+      window.location.reload();
+      return;
+    }
+    if (window.actualizarCuentaProyectos) window.actualizarCuentaProyectos();
+    if (window.refrescarProyectosTrasAuth) window.refrescarProyectosTrasAuth();
+    const id = PROYECTO_ACTIVO_ID;
+    if (id) {
+      // Si se abrió un proyecto mientras la sesión estaba pendiente, nunca se
+      // llegó a ver si es compartido ni se tomó el candado. Sin ediciones
+      // locales se hace igual que al abrirlo con sesión; CON ediciones locales
+      // NO se adopta lo remoto a ciegas (pisaría el trabajo): manejarReconexion
+      // pregunta si hay conflicto, y después se completa lo que faltara.
+      if (!PROYECTO_ACTIVO_HUBO_EDICION) {
+        detectarSiEsCompartido(id);
+      } else {
+        manejarReconexion().then(() => {
+          if (PROYECTO_ACTIVO_ID === id && !PROYECTO_ACTIVO_COMPARTIDO) detectarSiEsCompartido(id);
+        });
+      }
+    }
+  } catch (e) {
+    console.error("No se pudo completar la sesión tras el arranque local:", e);
+  }
+}
+
+// ¿Es mal momento para recargar la página sola (p. ej. por una versión nueva
+// del Service Worker)? Lo usa index.html.
+function appOcupada() {
+  if (guardadoEnCurso || firestoreSyncEnCurso) return true;
+  if (document.visibilityState === "hidden") return false;
+  const ae = document.activeElement;
+  if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return true;
+  const login = document.getElementById("pantalla-login");
+  if (login && !login.hidden && login.classList.contains("auth-visible")) return true;
+  return false;
+}
+
+async function initApp() {
+  const yearEl = document.getElementById("footer-year");
+  if (yearEl) yearEl.textContent = new Date().getFullYear();
+
+  // Mueve el mismo nodo .header-actions (Proyectos/Archivo/PDF/guardado/
+  // configuración) entre el header (mobile, solo íconos) y la barra nueva
+  // debajo del header (desktop, con texto) según el ancho — nunca lo
+  // duplica, así que todos los listeners que ya se cablean más abajo
+  // siguen funcionando sin importar dónde viva el nodo en cada momento.
+  // Kevin, 08/09/2026: "en desktop debería estar mejor ubicado debajo del
+  // header, no en el header".
+  (function () {
+    const acciones = document.querySelector(".header-actions");
+    const anclaMobile = document.getElementById("header-actions-anchor-mobile");
+    const barraDesktop = document.getElementById("header-actions-bar");
+    if (!acciones || !anclaMobile || !barraDesktop) return;
+    const mq = window.matchMedia("(min-width: 701px)");
+    function moverAccionesSegunAncho() {
+      if (mq.matches) {
+        if (acciones.parentElement !== barraDesktop) barraDesktop.appendChild(acciones);
+      } else {
+        if (acciones.previousElementSibling !== anclaMobile) anclaMobile.after(acciones);
+      }
+    }
+    moverAccionesSegunAncho();
+    if (mq.addEventListener) mq.addEventListener("change", moverAccionesSegunAncho);
+    else if (mq.addListener) mq.addListener(moverAccionesSegunAncho); // Safari viejo
+  })();
+
+  // Reconstruye el índice liviano de proyectos si hace falta (proyectos
+  // guardados con una versión anterior de la app, antes de que este
+  // índice existiera). Corre en segundo plano, sin bloquear el arranque
+  // — es lenta solo la primera vez, nunca más después.
+  if (window.migrarIndiceProyectosSiHaceFalta) {
+    window.migrarIndiceProyectosSiHaceFalta().catch(() => {});
+  }
+
+  cargarMatricesLocalStorage();
+  const cargoEmbebido = cargarDatosEmbebidos();
+  actualizarIndicadorArchivo();
+
+  document.getElementById("btn-abrir-levantamiento").addEventListener("click", abrirLevantamiento);
+
+  document.querySelectorAll("#lev-vista-toggle-global [data-lev-vista-global]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      VISTA_LEVANTAMIENTO_TAB = btn.dataset.levVistaGlobal;
+      document.querySelectorAll("#lev-vista-toggle-global [data-lev-vista-global]").forEach(b => {
+        b.classList.toggle("lev-chip-active", b.dataset.levVistaGlobal === VISTA_LEVANTAMIENTO_TAB);
+      });
+      renderLevantamientoTab();
+      renderLevantamientoTabJuntas();
+    });
+  });
+
+  document.getElementById("btn-abrir-levantamiento-juntas").addEventListener("click", abrirLevantamientoJuntas);
+  document.getElementById("btn-abrir-planos").addEventListener("click", () => abrirVisorPlanos());
+  document.getElementById("btn-cerrar-levantamiento").addEventListener("click", cerrarLevantamiento);
+  document.getElementById("btn-ver-planos-lev").addEventListener("click", () => abrirVisorPlanos());
+
+  function contextoInstrucciones() {
+    if (document.getElementById("planos-visor-overlay")) return "planos";
+    if (document.body.classList.contains("modo-levantamiento") && window.getLevMode && window.getLevMode() === "juntas") return "juntas";
+    return "penetrantes";
+  }
+  function activarTabInstrucciones(tab) {
+    document.querySelectorAll(".instr-tab-btn").forEach(b => b.classList.toggle("active", b.dataset.instrTab === tab));
+    document.querySelectorAll(".instr-tab-panel").forEach(p => p.classList.toggle("active", p.dataset.instrPanel === tab));
+  }
+  document.querySelectorAll(".instr-tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => activarTabInstrucciones(btn.dataset.instrTab));
+  });
+
+  document.getElementById("btn-abrir-instrucciones").addEventListener("click", () => {
+    activarTabInstrucciones(contextoInstrucciones());
+    document.getElementById("instrucciones-modal").classList.add("open");
+  });
+  document.getElementById("btn-cerrar-instrucciones").addEventListener("click", () => {
+    document.getElementById("instrucciones-modal").classList.remove("open");
+  });
+  document.getElementById("instrucciones-modal").addEventListener("click", (e) => {
+    if (e.target.id === "instrucciones-modal") e.currentTarget.classList.remove("open");
+  });
+
+  document.getElementById("btn-add-row").addEventListener("click", () => {
+    ROWS.push(nuevaFila());
+    renderTable();
+    marcarCambio();
+  });
+  document.getElementById("btn-add-5").addEventListener("click", () => {
+    for (let i = 0; i < 5; i++) ROWS.push(nuevaFila());
+    renderTable();
+    marcarCambio();
+  });
+  document.getElementById("btn-deshacer").addEventListener("click", deshacerCambio);
+  const btnDeshacerLevTab = document.getElementById("btn-deshacer-lev-tab");
+  if (btnDeshacerLevTab) btnDeshacerLevTab.addEventListener("click", deshacerCambio);
+  document.getElementById("btn-borrar-todo").addEventListener("click", borrarTodo);
+  const filtroCalcEl = document.getElementById("input-filtro-calc");
+  if (filtroCalcEl) filtroCalcEl.addEventListener("input", () => { FILTRO_CALC = filtroCalcEl.value; aplicarFiltroCalc(); });
+  document.querySelectorAll(".tab-btn").forEach(b => {
+    b.addEventListener("click", () => switchTab(b.dataset.tab));
+  });
+
+  const cfgIds = ["C13", "C14", "C15", "C17", "C17_JUNTAS", "UMB_FS", "UMB_CP606", "UMB_SILGG"];
+  const cfgPct = ["C17", "C17_JUNTAS"];
+  cfgIds.forEach(id => {
+    const el = document.getElementById("cfg-" + id);
+    el.value = cfgPct.includes(id) ? CONFIG[id] * 100 : CONFIG[id];
+    el.addEventListener("input", () => {
+      const v = parseFloat(el.value);
+      if (cfgPct.includes(id)) CONFIG[id] = isNaN(v) ? 0 : v / 100;
+      else CONFIG[id] = isNaN(v) ? 0 : v;
+      updateAllBadges();
+      if (ACTIVE_TAB === "resumen") renderResumen();
+      marcarCambio();
+      if (cfgPct.includes(id)) actualizarChipDesperdicio();
+    });
+  });
+
+  function actualizarChipDesperdicio() {
+    const p = document.getElementById("cfg-C17");
+    const j = document.getElementById("cfg-C17_JUNTAS");
+    const val = document.getElementById("desperdicio-chip-valor");
+    if (!p || !j || !val) return;
+    const pv = p.value === "" ? "0" : p.value;
+    const jv = j.value === "" ? "0" : j.value;
+    val.textContent = pv + "% · " + jv + "%";
+  }
+  window.actualizarChipDesperdicio = actualizarChipDesperdicio;
+  actualizarChipDesperdicio();
+
+  const btnDesperdicioChip = document.getElementById("btn-desperdicio-chip");
+  const desperdicioPopover = document.getElementById("desperdicio-popover");
+  const desperdicioChipWrap = document.getElementById("desperdicio-chip-wrap");
+  if (btnDesperdicioChip && desperdicioPopover && desperdicioChipWrap) {
+    function posicionarPopoverDesperdicio() {
+      const r = btnDesperdicioChip.getBoundingClientRect();
+      desperdicioPopover.style.visibility = "hidden";
+      desperdicioPopover.hidden = false;
+      const w = desperdicioPopover.offsetWidth;
+      desperdicioPopover.hidden = true;
+      desperdicioPopover.style.visibility = "";
+      const margen = 8;
+      let left = r.right - w;
+      left = Math.max(margen, Math.min(left, window.innerWidth - w - margen));
+      desperdicioPopover.style.left = left + "px";
+      desperdicioPopover.style.top = (r.bottom + 6) + "px";
+    }
+    btnDesperdicioChip.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const abrir = desperdicioPopover.hidden;
+      if (abrir) posicionarPopoverDesperdicio();
+      desperdicioPopover.hidden = !abrir;
+      btnDesperdicioChip.setAttribute("aria-expanded", abrir ? "true" : "false");
+    });
+    document.addEventListener("click", (e) => {
+      if (!desperdicioPopover.hidden && !desperdicioChipWrap.contains(e.target) && !desperdicioPopover.contains(e.target)) {
+        desperdicioPopover.hidden = true;
+        btnDesperdicioChip.setAttribute("aria-expanded", "false");
+      }
+    });
+    window.addEventListener("scroll", () => {
+      desperdicioPopover.hidden = true;
+      btnDesperdicioChip.setAttribute("aria-expanded", "false");
+    }, { capture: true, passive: true });
+  }
+
+  attachTableEvents();
+
+  const projIds = [["proj-nombre", "nombre"], ["proj-cliente", "cliente"], ["proj-fecha", "fecha"]];
+  projIds.forEach(([elId, key]) => {
+    const el = document.getElementById(elId);
+    el.value = PROJECT_INFO[key];
+    el.addEventListener("input", () => { PROJECT_INFO[key] = el.value; marcarCambio(); });
+  });
+
+  function posicionarDropdown(btn, panel) {
+    const r = btn.getBoundingClientRect();
+    panel.style.left = "0px";
+    panel.style.top = "0px";
+    panel.style.visibility = "hidden";
+    panel.style.display = "flex";
+    const panelWidth = panel.offsetWidth;
+    const panelHeight = panel.offsetHeight;
+    panel.style.display = "";
+    panel.style.visibility = "";
+
+    const margen = 8;
+    let left = r.right - panelWidth;
+    left = Math.max(margen, Math.min(left, window.innerWidth - panelWidth - margen));
+    let top = r.bottom + 6;
+    if (top + panelHeight > window.innerHeight - margen) {
+      top = Math.max(margen, r.top - panelHeight - 6);
+    }
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+  }
+
+  function registrarDropdown(btnId, panelId) {
+    const btn = document.getElementById(btnId);
+    const panel = document.getElementById(panelId);
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const yaAbierto = panel.classList.contains("open");
+      document.querySelectorAll(".dropdown-panel.open").forEach(p => p.classList.remove("open"));
+      if (!yaAbierto) {
+        posicionarDropdown(btn, panel);
+        panel.classList.add("open");
+      }
+    });
+    panel.addEventListener("click", (e) => {
+      if (e.target.closest(".dropdown-item")) panel.classList.remove("open");
+    });
+    return panel;
+  }
+  const menuPdfPanel = registrarDropdown("btn-menu-pdf", "dropdown-panel-pdf");
+  const menuPanel = registrarDropdown("btn-menu-proyecto", "dropdown-panel-proyecto");
+  document.addEventListener("click", (e) => {
+    [["dropdown-pdf", menuPdfPanel], ["dropdown-proyecto", menuPanel]].forEach(([contId, panel]) => {
+      if (!document.getElementById(contId).contains(e.target)) panel.classList.remove("open");
+    });
+  });
+  window.addEventListener("scroll", () => {
+    [menuPdfPanel, menuPanel].forEach(p => p.classList.remove("open"));
+  }, { capture: true, passive: true });
+
+  document.getElementById("btn-pdf-completo").addEventListener("click", () => descargarPDF("completo"));
+  document.getElementById("btn-pdf-levantamiento").addEventListener("click", () => descargarPDF("levantamiento"));
+  document.getElementById("btn-pdf-levantamiento-resumido").addEventListener("click", () => descargarPDF("levantamiento-resumido"));
+  document.getElementById("btn-pdf-resumen").addEventListener("click", () => descargarPDF("resumen"));
+  document.getElementById("btn-pdf-memoria").addEventListener("click", descargarMemoriaCalculoPDF);
+
+  document.getElementById("btn-bd-export-penetrantes").addEventListener("click", exportarMatrizPenetrantesExcel);
+  document.getElementById("btn-bd-export-juntas").addEventListener("click", exportarMatrizJuntasExcel);
+  document.getElementById("btn-bd-import-penetrantes").addEventListener("click", () => document.getElementById("file-import-matriz-penetrantes").click());
+  document.getElementById("btn-bd-import-juntas").addEventListener("click", () => document.getElementById("file-import-matriz-juntas").click());
+  document.getElementById("file-import-matriz-penetrantes").addEventListener("change", (e) => {
+    if (e.target.files[0]) importarMatrizPenetrantesExcel(e.target.files[0]);
+    e.target.value = "";
+  });
+  document.getElementById("file-import-matriz-juntas").addEventListener("change", (e) => {
+    if (e.target.files[0]) importarMatrizJuntasExcel(e.target.files[0]);
+    e.target.value = "";
+  });
+  document.getElementById("btn-bd-restaurar").addEventListener("click", restaurarMatricesOriginales);
+  document.getElementById("btn-descargar-sistemas").addEventListener("click", descargarSistemasUL);
+  document.getElementById("btn-descargar-fichas").addEventListener("click", descargarFichasTecnicas);
+  document.getElementById("btn-descargar-submittal").addEventListener("click", descargarSubmittal);
+  document.getElementById("btn-pdf-planos").addEventListener("click", exportarPlanosPDF);
+
+  document.getElementById("btn-archivo-nuevo").addEventListener("click", nuevoProyecto);
+  const btnHome = document.getElementById("btn-home");
+  if (btnHome) btnHome.addEventListener("click", () => { if (window.mostrarPantallaProyectos) window.mostrarPantallaProyectos(); });
+  document.getElementById("btn-archivo-abrir").addEventListener("click", () => {
+    document.getElementById("file-import-json").click();
+  });
+  document.getElementById("btn-archivo-guardar-como").addEventListener("click", exportarProyectoJSON);
+  const btnToggleExcel = document.getElementById("btn-toggle-excel-texto");
+  const subPanelExcel = document.getElementById("dropdown-sub-panel-excel");
+  if (btnToggleExcel && subPanelExcel) {
+    btnToggleExcel.addEventListener("click", (e) => {
+      e.stopPropagation();
+      subPanelExcel.classList.toggle("open");
+      btnToggleExcel.classList.toggle("open");
+    });
+  }
+  document.getElementById("btn-import-excel").addEventListener("click", () => {
+    document.getElementById("file-import-excel").click();
+  });
+  document.getElementById("btn-export-excel").addEventListener("click", exportarLevantamientoExcel);
+  document.getElementById("btn-export-excel-lev-pen").addEventListener("click", exportarLevantamientoPenetrantesExcel);
+  document.getElementById("btn-export-excel-lev-juntas").addEventListener("click", exportarLevantamientoJuntasExcel);
+  // Protegido con chequeo de null: si este botón alguna vez falta del
+  // HTML (como pasó hoy — armé un parche de index.html a partir de una
+  // copia vieja que no lo tenía todavía), un getElementById().addEventListener()
+  // directo sin chequear explota AQUÍ y tumba TODO initApp() de ahí para
+  // abajo — incluido lo que oculta la pantalla de carga. Por eso la app se
+  // quedaba en el splash y después en negro. Kevin, 08/09/2026.
+  const btnExportZip = document.getElementById("btn-export-fotos-zip");
+  if (btnExportZip) btnExportZip.addEventListener("click", exportarFotosLevantamientoZip);
+  document.getElementById("file-import-json").addEventListener("change", (e) => {
+    if (e.target.files[0]) importarProyectoJSON(e.target.files[0]);
+    e.target.value = "";
+  });
+  document.getElementById("file-import-excel").addEventListener("change", (e) => {
+    if (e.target.files[0]) importarExcel(e.target.files[0]);
+    e.target.value = "";
+  });
+
+  actualizarBotonDeshacer();
+  pedirAlmacenamientoPersistente();
+
+  if (cargoEmbebido) {
+    PROYECTO_ACTIVO_ID = "p_" + Date.now().toString(36) + "_embebido";
+    PROYECTO_ACTIVO_CREADO_EN = new Date().toISOString();
+    try { await idbGuardarActivo(PROYECTO_ACTIVO_ID); } catch (e) {}
+    renderTable();
+    renderLevantamientoTab();
+    mostrarVistaProyecto();
+    mostrarToast(`Proyecto cargado automáticamente: ${ROWS.length} fila(s).`);
+  } else {
+    let modoArranque = "online";
+    try { modoArranque = await esperarSesionOModoLocal(); } catch (e) { modoArranque = "local"; }
+    try { await migrarProyectoUnicoSiHaceFalta(); } catch (e) { console.error("Migración de proyecto único:", e); }
+    try {
+      if (window.mostrarPantallaProyectos) {
+        await window.mostrarPantallaProyectos();
+      } else {
+        for (let i = 0; i < 3; i++) ROWS.push(nuevaFila());
+        renderTable();
+        renderLevantamientoTab();
+        mostrarVistaProyecto();
+      }
+    } catch (e) {
+      // Red de seguridad: un error al armar la lista NUNCA debe dejar la
+      // pantalla negra (body.app-arrancando). Se muestra la app y se avisa.
+      console.error("No se pudo armar la pantalla de proyectos:", e);
+      mostrarVistaProyecto();
+      mostrarToast("No se pudo cargar la lista de proyectos. Recargá la app.", "error");
+    }
+    if (modoArranque === "local") {
+      mostrarToast("Sin conexión estable: se abrió con los datos de este dispositivo. La sesión se confirma sola cuando haya señal.");
+    }
+  }
+  ocultarSplashInicial();
+}
+
+function ocultarSplashInicial() {
+  const el = document.getElementById("splash-inicio");
+  if (el) el.classList.add("splash-oculto");
+}
+
+function mostrarVistaProyecto() {
+  document.body.classList.remove("app-arrancando");
+}
+function ocultarVistaProyecto() {
+  document.body.classList.add("app-arrancando");
+}
+
+document.addEventListener("DOMContentLoaded", initApp);
+
+window.soltarCandadoActivoSiHaceFalta = soltarCandadoActivoSiHaceFalta;
+window.activarListenerProyectoActivo = activarListenerProyectoActivo;
+window.ocultarSplashInicial = ocultarSplashInicial;
+window.mostrarVistaProyecto = mostrarVistaProyecto;
+window.ocultarVistaProyecto = ocultarVistaProyecto;
+window.marcarCambio = marcarCambio;
+window.UNDO_STACK = UNDO_STACK;
+window.pushUndo = pushUndo;
+window.deshacerCambio = deshacerCambio;
+window.idbListarProyectos = idbListarProyectos;
+window.idbLeerProyecto = idbLeerProyecto;
+window.idbGuardarProyecto = idbGuardarProyecto;
+window.idbBorrarProyecto = idbBorrarProyecto;
+window.idbLeerActivo = idbLeerActivo;
+window.idbGuardarActivo = idbGuardarActivo;
+window.idbGuardarMetaClave = idbGuardarMetaClave;
+window.idbLeerMetaClave = idbLeerMetaClave;
+window.abrirProyectoExistente = abrirProyectoExistente;
+window.crearYAbrirProyectoNuevo = crearYAbrirProyectoNuevo;
+window.appOcupada = appOcupada;
+})();
