@@ -880,7 +880,16 @@ async function detectarSiEsCompartido(id) {
         if (PROYECTO_ACTIVO_ID === id) activarListenerProyectoActivo(id);
       }
       if (!remoto.payloadJson && !seRecuperoContenido) {
-        sincronizarConFirestoreAhora();
+        // Solo se sube si hay algo que subir. Un proyecto recién creado (sin nombre y sin nada adentro) NO se sube:
+        // antes se mandaba un payload vacío que dejaba en la nube un documento "con contenido" pero sin nombre, y
+        // en la lista aparecía como "(Sin nombre — abrir para corregir)" en los demás dispositivos. La primera
+        // subida real ocurre sola en cuanto se escribe el nombre o se agrega algo (autoguardado → sincronizar).
+        let hayAlgoQueSubir = true;
+        try {
+          const pi = (typeof PROJECT_INFO !== "undefined" && PROJECT_INFO) || {};
+          hayAlgoQueSubir = !!(String(pi.nombre || "").trim() || String(pi.cliente || "").trim() || autoguardadoTieneContenido(datosProyectoActual()));
+        } catch (e3) { hayAlgoQueSubir = true; }
+        if (hayAlgoQueSubir) sincronizarConFirestoreAhora();
       }
     }
   } catch (e) {
