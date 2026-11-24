@@ -1087,11 +1087,14 @@ function ordenarProyectos(lista, modo, carpetaId) {
   }
   return copia;
 }
-function ordenarCarpetas(lista, modo) {
-  const copia = lista.slice();
-  if (modo === "reciente") copia.sort((a, b) => new Date(b.creadoEn || 0) - new Date(a.creadoEn || 0));
-  else copia.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
-  return copia;
+// Las carpetas SIEMPRE van en orden alfabético (sin importar el orden A-Z / Reciente de los proyectos): con
+// muchas carpetas es la única forma de encontrarlas rápido. Ignora tildes y mayúsculas; los números van por valor
+// ("Torre 2" antes que "Torre 10").
+function compararNombresCarpeta(a, b) {
+  return String(a || "").localeCompare(String(b || ""), "es", { sensitivity: "base", numeric: true });
+}
+function ordenarCarpetas(lista) {
+  return lista.slice().sort((a, b) => compararNombresCarpeta(a.nombre, b.nombre));
 }
 
 // Cuenta para MOSTRAR (avatar, nombre, correo): la sesión real si ya está, o la última cuenta
@@ -1204,34 +1207,83 @@ function abrirModalNuevaCarpeta(padreId) {
     if (e.target.dataset.act === "crear") crear();
   });
 }
+// "Mover a carpeta": lista en orden alfabético (subcarpetas debajo de su carpeta), con buscador cuando hay
+// varias carpetas, lista con scroll propio (no se desborda la pantalla) y botón Cancelar siempre visible.
+// En el celular se abre como hoja desde abajo. Escribir filtra por nombre (sin tildes) y muestra la ruta
+// "Carpeta › Subcarpeta". Enter elige la primera coincidencia; ↑/↓ navegan.
 function abrirModalMoverACarpeta(proyectoId) {
-  const opciones = [{ label: "Sin carpeta", act: "sin-carpeta", clase: "secondary" }];
-  CARPETAS.filter(c => !c.padreId).forEach(padre => {
-    opciones.push({ label: padre.nombre, act: "carpeta:" + padre.id, clase: "secondary" });
-    CARPETAS.filter(c => c.padreId === padre.id).forEach(hijo => {
-      opciones.push({ label: "\u00A0\u00A0↳ " + hijo.nombre, act: "carpeta:" + hijo.id, clase: "secondary" });
-    });
+  const actual = carpetaDe(proyectoId);
+  const raices = ordenarCarpetas(CARPETAS.filter((c) => !c.padreId));
+  const hijosDe = (id) => ordenarCarpetas(CARPETAS.filter((c) => c.padreId === id));
+  const entradas = []; // { id, nombre, ruta, nivel }
+  raices.forEach((padre) => {
+    entradas.push({ id: padre.id, nombre: padre.nombre, ruta: padre.nombre, nivel: 0 });
+    hijosDe(padre.id).forEach((h) => entradas.push({ id: h.id, nombre: h.nombre, ruta: padre.nombre + " › " + h.nombre, nivel: 1 }));
   });
-  opciones.push({ label: "Cancelar", act: "cancelar", clase: "secondary" });
+  // Subcarpetas huérfanas (su carpeta madre ya no existe): igual deben poder elegirse.
+  CARPETAS.filter((c) => c.padreId && !CARPETAS.some((x) => x.id === c.padreId)).forEach((h) => entradas.push({ id: h.id, nombre: h.nombre, ruta: h.nombre, nivel: 0 }));
+  const conBuscador = entradas.length >= 6;
   const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
-  const botones = opciones.map(o => `<button class="${o.clase}" data-act="${o.act}">${escapeHtml(o.label)}</button>`).join("");
+  overlay.className = "modal-overlay modal-overlay-hoja";
   overlay.innerHTML = `
-    <div class="modal-box">
-      <p style="font-weight:600;margin:0 0 12px;">Mover a carpeta</p>
-      <div class="modal-actions" style="flex-direction:column;align-items:stretch;">${botones}</div>
+    <div class="modal-box modal-mover" role="dialog" aria-modal="true" aria-label="Mover a carpeta">
+      <p class="modal-mover-titulo">Mover a carpeta</p>
+      ${conBuscador ? `<div class="modal-mover-buscar">${icoPx("search")}<input type="search" id="mover-buscar" placeholder="Buscar carpeta…" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Buscar carpeta"></div>` : ""}
+      <div class="modal-mover-lista" id="mover-lista" role="listbox"></div>
+      <div class="modal-actions"><button type="button" class="secondary" data-act="cancelar">Cancelar</button></div>
     </div>`;
   document.body.appendChild(overlay);
+  const lista = overlay.querySelector("#mover-lista");
+  const input = overlay.querySelector("#mover-buscar");
+  const filaHTML = (act, icono, texto, nivel, esActual, sub) =>
+    `<button type="button" class="modal-mover-item${esActual ? " actual" : ""}${nivel ? " sub" : ""}" role="option" data-act="${escapeHtml(act)}"${esActual ? ' aria-selected="true"' : ""}>${icoPx(icono)}<span class="modal-mover-texto">${escapeHtml(texto)}${sub ? `<small>${escapeHtml(sub)}</small>` : ""}</span>${esActual ? '<span class="modal-mover-actual">Actual ✓</span>' : ""}</button>`;
+  const pintar = () => {
+    const q = input ? normalizarBusqueda(input.value) : "";
+    let html = "";
+    if (!q) {
+      html += filaHTML("sin-carpeta", "home", "Sin carpeta", 0, actual === null);
+      html += entradas.map((e) => filaHTML("carpeta:" + e.id, e.nivel ? "folder-open" : "folder", e.nombre, e.nivel, e.id === actual)).join("");
+    } else {
+      const m = entradas.filter((e) => normalizarBusqueda(e.ruta).includes(q));
+      if ("sin carpeta".includes(q)) html += filaHTML("sin-carpeta", "home", "Sin carpeta", 0, actual === null);
+      html += m.map((e) => filaHTML("carpeta:" + e.id, e.nivel ? "folder-open" : "folder", e.nombre, 0, e.id === actual, e.nivel ? e.ruta.slice(0, e.ruta.length - e.nombre.length - 3) : "")).join("");
+      if (!html) html = `<p class="modal-mover-vacio">Ninguna carpeta coincide con "${escapeHtml(input.value.trim())}".</p>`;
+    }
+    lista.innerHTML = html;
+    lista.scrollTop = 0;
+  };
+  pintar();
+  const elegir = (act) => {
+    overlay.remove();
+    if (!act || act === "cancelar") return;
+    const destino = act === "sin-carpeta" ? null : (act.startsWith("carpeta:") ? act.slice(8) : undefined);
+    if (destino === undefined || destino === actual) return; // elegir donde ya está no hace nada
+    accionMoverProyecto(proyectoId, destino);
+    renderPantallaProyectos(!!window.PROYECTO_ACTIVO_ID);
+  };
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) { overlay.remove(); return; }
-    const act = e.target.dataset.act;
-    if (!act) return;
-    overlay.remove();
-    if (act === "cancelar") return;
-    if (act === "sin-carpeta") accionMoverProyecto(proyectoId, null);
-    else if (act.startsWith("carpeta:")) accionMoverProyecto(proyectoId, act.slice(8));
-    renderPantallaProyectos(!!window.PROYECTO_ACTIVO_ID);
+    const b = e.target.closest("[data-act]");
+    if (b) elegir(b.getAttribute("data-act"));
   });
+  if (input) {
+    input.addEventListener("input", pintar);
+    const items = () => Array.from(lista.querySelectorAll(".modal-mover-item"));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); const it = items()[0]; if (it) elegir(it.getAttribute("data-act")); }
+      else if (e.key === "ArrowDown") { e.preventDefault(); const it = items()[0]; if (it) it.focus(); }
+    });
+  }
+  lista.addEventListener("keydown", (e) => {
+    const its = Array.from(lista.querySelectorAll(".modal-mover-item"));
+    const i = its.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" && i < its.length - 1) { e.preventDefault(); its[i + 1].focus(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); if (i > 0) its[i - 1].focus(); else if (input) input.focus(); }
+  });
+  overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") overlay.remove(); });
+  // En escritorio el cursor queda en el buscador; en el celular no, para que el teclado no tape la lista.
+  const tactil = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+  if (input && !tactil) input.focus();
 }
 
 function abrirModalCrearEspacio() {
