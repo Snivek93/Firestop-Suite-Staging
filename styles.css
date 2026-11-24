@@ -1445,3 +1445,28 @@ button.primary:not(:disabled):active, button.secondary:not(:disabled):active, bu
 @media (max-width: 339px) { .lev-chip-grid-compacto { grid-template-columns: repeat(2, 1fr); } }
 @media (min-width: 900px) { .lev-chip-grid-compacto { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); } }
 .lev-chip-grid-2 { grid-template-columns: repeat(2, 1fr); }
+
+/* ---- Mover a carpeta: lista con buscador y scroll propio ---- */
+.modal-mover { max-width: 420px; display: flex; flex-direction: column; max-height: min(80vh, 560px); padding: 16px; }
+.modal-mover .modal-mover-titulo { font-weight: 700; margin: 0 0 10px; }
+.modal-mover-buscar { display: flex; align-items: center; gap: 8px; background: var(--tile-bg); border-radius: 10px; padding: 0 12px; height: 42px; margin-bottom: 8px; flex: none; }
+.modal-mover-buscar .icon { width: 16px; height: 16px; color: var(--text-muted); flex: none; }
+/* 16px: con menos, iOS Safari hace zoom al enfocar el campo. */
+.modal-mover-buscar input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-size: 16px; color: var(--ink); height: 100%; font-family: inherit; }
+.modal-mover-buscar input::-webkit-search-cancel-button { -webkit-appearance: none; }
+.modal-mover-lista { flex: 1 1 auto; min-height: 120px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 2px; margin: 0 -6px 10px; padding: 0 6px; }
+.modal-mover-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: none; background: transparent; color: var(--ink); font-family: inherit; font-size: var(--fs-base); font-weight: 500; padding: 10px 10px; min-height: 44px; border-radius: 8px; cursor: pointer; flex: none; }
+.modal-mover-item .icon { width: 18px; height: 18px; flex: none; color: var(--text-secondary); margin: 0; }
+.modal-mover-item.sub { padding-left: 34px; }
+.modal-mover-texto { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modal-mover-texto small { display: block; font-size: var(--fs-xs); color: var(--text-muted); font-weight: 400; overflow: hidden; text-overflow: ellipsis; }
+.modal-mover-item.actual { font-weight: 700; background: var(--tile-bg); }
+.modal-mover-actual { font-size: var(--fs-xs); font-weight: 600; color: var(--text-secondary); flex: none; }
+.modal-mover-item:hover, .modal-mover-item:focus-visible { background: var(--grey-2); outline: none; }
+.modal-mover-vacio { color: var(--text-muted); text-align: center; padding: 18px 8px; margin: 0 !important; }
+.modal-mover .modal-actions { flex: none; }
+.modal-mover .modal-actions button { width: 100%; }
+@media (max-width: 700px) {
+  .modal-overlay-hoja { align-items: flex-end; padding: 0; }
+  .modal-overlay-hoja .modal-mover { max-width: none; border-radius: 16px 16px 0 0; max-height: 82vh; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+}
